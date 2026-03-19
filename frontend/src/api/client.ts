@@ -44,3 +44,28 @@ export async function getMe(): Promise<{ id: string; username: string; role: str
   const resp = await api.get('/api/me');
   return resp.data;
 }
+
+// Providers
+export async function getProviders() { return (await api.get('/api/providers')).data; }
+export async function addProvider(data: any) { return (await api.post('/api/providers', data)).data; }
+export async function deleteProvider(id: string) { await api.delete(`/api/providers/${id}`); }
+
+// Users
+export async function getUsers() { return (await api.get('/api/users')).data; }
+export async function addUser(data: any) { return (await api.post('/api/users', data)).data; }
+export async function deleteUser(id: string) { await api.delete(`/api/users/${id}`); }
+
+// API Keys
+export async function getAPIKeys() { return (await api.get('/api/api-keys')).data; }
+export async function createAPIKey(label: string) { return (await api.post('/api/api-keys', { label })).data; }
+export async function deleteAPIKey(id: string) { await api.delete(`/api/api-keys/${id}`); }
+
+// Conversations
+export async function getConversations() { return (await api.get('/api/conversations')).data; }
+export async function createConversation(title: string) { return (await api.post('/api/conversations', { title })).data; }
+export async function getConversation(id: string) { return (await api.get(`/api/conversations/${id}`)).data; }
+export async function deleteConversation(id: string) { await api.delete(`/api/conversations/${id}`); }
+
+// Usage
+export async function getUsage(range: string) { return (await api.get(`/api/usage?range=${range}`)).data; }
+export async function getAllUsage(range: string) { return (await api.get(`/api/usage/all?range=${range}`)).data; }

@@ -1,0 +1,68 @@
+import { useState } from 'react';
+import ProviderSettings from './ProviderSettings';
+import UserSettings from './UserSettings';
+import UsageDashboard from './UsageDashboard';
+import APIKeySettings from './APIKeySettings';
+
+type Tab = 'providers' | 'users' | 'usage' | 'apikeys';
+
+interface SettingsProps {
+  onClose: () => void;
+  userRole?: string;
+}
+
+export default function Settings({ onClose, userRole }: SettingsProps) {
+  const [activeTab, setActiveTab] = useState<Tab>('providers');
+
+  const tabs: { id: Tab; label: string; adminOnly?: boolean }[] = [
+    { id: 'providers', label: 'Providers' },
+    { id: 'users', label: 'Users', adminOnly: true },
+    { id: 'usage', label: 'Usage' },
+    { id: 'apikeys', label: 'API Keys' },
+  ];
+
+  const visibleTabs = tabs.filter((t) => !t.adminOnly || userRole === 'admin');
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
+          <h1 className="text-white text-lg font-semibold">Settings</h1>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-white transition-colors text-xl leading-none"
+            aria-label="Close settings"
+          >
+            &times;
+          </button>
+        </div>
+
+        {/* Tab bar */}
+        <div className="flex gap-1 px-6 pt-3 border-b border-gray-700">
+          {visibleTabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                activeTab === tab.id
+                  ? 'bg-gray-700 text-white border-b-2 border-blue-500'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/50'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {activeTab === 'providers' && <ProviderSettings />}
+          {activeTab === 'users' && userRole === 'admin' && <UserSettings />}
+          {activeTab === 'usage' && <UsageDashboard />}
+          {activeTab === 'apikeys' && <APIKeySettings />}
+        </div>
+      </div>
+    </div>
+  );
+}
