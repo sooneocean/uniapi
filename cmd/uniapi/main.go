@@ -20,6 +20,7 @@ import (
     pGemini "github.com/user/uniapi/internal/provider/gemini"
     pOpenai "github.com/user/uniapi/internal/provider/openai"
     "github.com/user/uniapi/internal/router"
+    "github.com/user/uniapi/internal/web"
 )
 
 func main() {
@@ -122,6 +123,8 @@ func main() {
 
     // Health
     engine.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
+
+    web.RegisterFrontend(engine)
 
     addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
     log.Printf("UniAPI starting on %s", addr)

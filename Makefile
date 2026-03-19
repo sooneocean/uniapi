@@ -1,6 +1,11 @@
-.PHONY: build run test clean
+.PHONY: build run test clean frontend
 
-build:
+frontend:
+	cd frontend && npm run build
+	rm -rf internal/web/dist
+	cp -r frontend/dist internal/web/dist
+
+build: frontend
 	go build -o bin/uniapi ./cmd/uniapi
 
 run: build
@@ -10,4 +15,4 @@ test:
 	go test ./... -v -race
 
 clean:
-	rm -rf bin/
+	rm -rf bin/ internal/web/dist
