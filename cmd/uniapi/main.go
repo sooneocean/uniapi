@@ -21,6 +21,7 @@ import (
     pOpenai "github.com/user/uniapi/internal/provider/openai"
     "github.com/user/uniapi/internal/repo"
     "github.com/user/uniapi/internal/router"
+    "github.com/user/uniapi/internal/usage"
     "github.com/user/uniapi/internal/web"
 )
 
@@ -108,8 +109,12 @@ func main() {
     jwtKey := crypto.DeriveKey(cfg.Security.Secret)
     jwtMgr := auth.NewJWTManager(jwtKey, 7*24*time.Hour)
 
-    // User repo
+    // Repos
     userRepo := repo.NewUserRepo(database)
+    encKey := crypto.DeriveKey(cfg.Security.Secret)
+    accountRepo := repo.NewAccountRepo(database, encKey)
+    convoRepo := repo.NewConversationRepo(database)
+    recorder := usage.NewRecorder(database.DB)
 
     // Gin
     gin.SetMode(gin.ReleaseMode)
@@ -129,6 +134,35 @@ func main() {
     apiAuth := api.Group("")
     apiAuth.Use(handler.JWTAuthMiddleware(jwtMgr))
     apiAuth.GET("/me", authHandler.Me)
+
+    // Settings handler
+    settingsHandler := handler.NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database)
+
+    // Provider management (admin only)
+    apiAuth.GET("/providers", settingsHandler.ListProviders)
+    apiAuth.POST("/providers", settingsHandler.AddProvider)
+    apiAuth.DELETE("/providers/:id", settingsHandler.DeleteProvider)
+
+    // User management (admin only)
+    apiAuth.GET("/users", settingsHandler.ListUsers)
+    apiAuth.POST("/users", settingsHandler.CreateUser)
+    apiAuth.DELETE("/users/:id", settingsHandler.DeleteUser)
+
+    // API key management
+    apiAuth.GET("/api-keys", settingsHandler.ListAPIKeys)
+    apiAuth.POST("/api-keys", settingsHandler.CreateAPIKey)
+    apiAuth.DELETE("/api-keys/:id", settingsHandler.DeleteAPIKey)
+
+    // Conversation management
+    apiAuth.GET("/conversations", settingsHandler.ListConversations)
+    apiAuth.POST("/conversations", settingsHandler.CreateConversation)
+    apiAuth.GET("/conversations/:id", settingsHandler.GetConversation)
+    apiAuth.PUT("/conversations/:id", settingsHandler.UpdateConversation)
+    apiAuth.DELETE("/conversations/:id", settingsHandler.DeleteConversation)
+
+    // Usage
+    apiAuth.GET("/usage", settingsHandler.GetUsage)
+    apiAuth.GET("/usage/all", settingsHandler.GetAllUsage)
 
     // API routes
     apiHandler := handler.NewAPIHandler(rtr)
