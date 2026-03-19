@@ -1,11 +1,14 @@
 package anthropic
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
 	"github.com/user/uniapi/internal/provider"
 )
@@ -189,8 +192,85 @@ func (a *Anthropic) ChatCompletion(ctx context.Context, req *provider.ChatReques
 
 // ChatCompletionStream implements provider.Provider.
 func (a *Anthropic) ChatCompletionStream(ctx context.Context, req *provider.ChatRequest) (provider.Stream, error) {
-	return nil, fmt.Errorf("streaming not yet implemented")
+	cReq := convertRequest(req)
+	cReq.Stream = true
+	body, _ := json.Marshal(cReq)
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("anthropic: create stream request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", a.apiKey)
+	httpReq.Header.Set("anthropic-version", anthropicVersion)
+
+	resp, err := a.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic: do stream request: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("anthropic error (%d): %s", resp.StatusCode, string(b))
+	}
+
+	return &anthropicStream{reader: bufio.NewReader(resp.Body), body: resp.Body, model: req.Model}, nil
 }
+
+type anthropicStream struct {
+	reader    *bufio.Reader
+	body      io.ReadCloser
+	model     string
+	done      bool
+	eventType string
+}
+
+func (s *anthropicStream) Next() (*provider.StreamEvent, error) {
+	for {
+		if s.done {
+			return nil, io.EOF
+		}
+		line, err := s.reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "event: ") {
+			s.eventType = strings.TrimPrefix(line, "event: ")
+			continue
+		}
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		switch s.eventType {
+		case "message_stop":
+			s.done = true
+			return &provider.StreamEvent{Type: "done"}, nil
+		case "content_block_delta":
+			var chunk struct {
+				Delta struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"delta"`
+			}
+			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+				continue
+			}
+			if chunk.Delta.Text != "" {
+				return &provider.StreamEvent{
+					Type:    "content_delta",
+					Content: provider.ContentBlock{Type: "text", Text: chunk.Delta.Text},
+				}, nil
+			}
+		}
+	}
+}
+
+func (s *anthropicStream) Close() error { return s.body.Close() }
 
 // ValidateCredential implements provider.Provider.
 func (a *Anthropic) ValidateCredential(ctx context.Context, cred provider.Credential) error {

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { Message } from '../types';
-import { sendMessage } from '../api/client';
+import { sendMessageStream } from '../api/client';
 import ModelSelector from './ModelSelector';
 import MessageBubble from './MessageBubble';
 import StatusBar from './StatusBar';
@@ -34,35 +34,45 @@ export default function ChatArea() {
     setInput('');
     setLoading(true);
 
+    const assistantId = uuidv4();
+    const assistantMsg: Message = {
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      model: selectedModel,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, assistantMsg]);
+
     try {
       const apiMessages = nextMessages.map((m) => ({ role: m.role, content: m.content }));
-      const result = await sendMessage(selectedModel, apiMessages);
-
-      const assistantMsg: Message = {
-        id: uuidv4(),
-        role: 'assistant',
-        content: result.content,
-        model: selectedModel,
-        tokensIn: result.tokensIn,
-        tokensOut: result.tokensOut,
-        latencyMs: result.latencyMs,
-        createdAt: new Date().toISOString(),
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-      setLastStats({
-        tokensIn: result.tokensIn,
-        tokensOut: result.tokensOut,
-        latencyMs: result.latencyMs,
-      });
+      await sendMessageStream(
+        selectedModel,
+        apiMessages,
+        (chunk) => {
+          setMessages((prev) =>
+            prev.map((m) => m.id === assistantId ? { ...m, content: m.content + chunk } : m)
+          );
+        },
+        (usage) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, tokensIn: usage.tokensIn, tokensOut: usage.tokensOut, latencyMs: usage.latencyMs }
+                : m
+            )
+          );
+          setLastStats(usage);
+        },
+      );
     } catch (err) {
-      const errorMsg: Message = {
-        id: uuidv4(),
-        role: 'assistant',
-        content: 'Error: Failed to get a response. Please check your connection and API key.',
-        createdAt: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, errorMsg]);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? { ...m, content: 'Error: Failed to get a response. Please check your connection and API key.' }
+            : m
+        )
+      );
     } finally {
       setLoading(false);
     }
@@ -94,7 +104,7 @@ export default function ChatArea() {
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} />
         ))}
-        {loading && (
+        {loading && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && messages[messages.length - 1].content === '' && (
           <div className="flex justify-start mb-4">
             <div className="bg-gray-700 rounded-2xl px-4 py-3">
               <span className="text-gray-300 text-sm animate-pulse">...</span>

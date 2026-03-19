@@ -124,6 +124,45 @@ func (r *Router) tryAccount(ctx context.Context, acc *account, req *provider.Cha
     return nil, lastErr
 }
 
+func (r *Router) RouteStream(ctx context.Context, req *provider.ChatRequest) (provider.Stream, error) {
+    candidates := r.findAccounts(req.Model, req.Provider)
+    if len(candidates) == 0 {
+        return nil, fmt.Errorf("no provider available for model: %s", req.Model)
+    }
+    failovers := r.config.FailoverAttempts
+    if failovers < 1 { failovers = 1 }
+    var lastErr error
+    tried := make(map[string]bool)
+    for attempt := 0; attempt < failovers && attempt < len(candidates); attempt++ {
+        acc := r.selectAccount(candidates, tried)
+        if acc == nil { break }
+        tried[acc.id] = true
+        atomic.AddInt64(&acc.current, 1)
+        stream, err := acc.provider.ChatCompletionStream(ctx, req)
+        if err == nil {
+            // Decrement when stream is closed by caller; wrap to handle decrement
+            return &trackedStream{Stream: stream, dec: func() { atomic.AddInt64(&acc.current, -1) }}, nil
+        }
+        atomic.AddInt64(&acc.current, -1)
+        lastErr = err
+    }
+    return nil, fmt.Errorf("all providers failed for model %s: %w", req.Model, lastErr)
+}
+
+type trackedStream struct {
+    provider.Stream
+    dec     func()
+    closed  bool
+}
+
+func (t *trackedStream) Close() error {
+    if !t.closed {
+        t.closed = true
+        t.dec()
+    }
+    return t.Stream.Close()
+}
+
 func (r *Router) AllModels() []provider.Model {
     r.mu.RLock()
     defer r.mu.RUnlock()

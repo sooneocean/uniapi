@@ -1,6 +1,9 @@
 package handler
 
 import (
+    "encoding/json"
+    "fmt"
+    "io"
     "net/http"
     "time"
 
@@ -46,6 +49,12 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
         Model: req.Model, Messages: messages, MaxTokens: req.MaxTokens,
         Temperature: req.Temperature, Stream: req.Stream, Provider: req.Provider,
     }
+
+    if req.Stream {
+        h.handleStream(c, chatReq)
+        return
+    }
+
     start := time.Now()
     resp, err := h.router.Route(c.Request.Context(), chatReq)
     latency := time.Since(start)
@@ -62,6 +71,59 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
         "usage": gin.H{"prompt_tokens": resp.TokensIn, "completion_tokens": resp.TokensOut, "total_tokens": resp.TokensIn + resp.TokensOut},
         "x_uniapi": gin.H{"latency_ms": latency.Milliseconds()},
     })
+}
+
+func (h *APIHandler) handleStream(c *gin.Context, req *provider.ChatRequest) {
+    stream, err := h.router.RouteStream(c.Request.Context(), req)
+    if err != nil {
+        c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "api_error", "message": err.Error()}})
+        return
+    }
+    defer stream.Close()
+
+    c.Header("Content-Type", "text/event-stream")
+    c.Header("Cache-Control", "no-cache")
+    c.Header("Connection", "keep-alive")
+    c.Header("X-Accel-Buffering", "no")
+    c.Status(http.StatusOK)
+
+    id := "chatcmpl-" + uuid.New().String()[:8]
+    model := req.Model
+    created := time.Now().Unix()
+
+    w := c.Writer
+    for {
+        event, err := stream.Next()
+        if err == io.EOF {
+            break
+        }
+        if err != nil {
+            break
+        }
+        if event.Type == "done" {
+            fmt.Fprintf(w, "data: [DONE]\n\n")
+            w.Flush()
+            break
+        }
+        if event.Type == "content_delta" {
+            chunk := gin.H{
+                "id":      id,
+                "object":  "chat.completion.chunk",
+                "created": created,
+                "model":   model,
+                "choices": []gin.H{
+                    {
+                        "index":         0,
+                        "delta":         gin.H{"content": event.Content.Text},
+                        "finish_reason": nil,
+                    },
+                },
+            }
+            b, _ := json.Marshal(chunk)
+            fmt.Fprintf(w, "data: %s\n\n", b)
+            w.Flush()
+        }
+    }
 }
 
 func (h *APIHandler) ListModels(c *gin.Context) {

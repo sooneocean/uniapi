@@ -1,11 +1,14 @@
 package openai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
 	"github.com/user/uniapi/internal/provider"
 )
@@ -171,8 +174,78 @@ func (o *OpenAI) ChatCompletion(ctx context.Context, req *provider.ChatRequest) 
 
 // ChatCompletionStream implements provider.Provider.
 func (o *OpenAI) ChatCompletionStream(ctx context.Context, req *provider.ChatRequest) (provider.Stream, error) {
-	return nil, fmt.Errorf("streaming not yet implemented")
+	oaiReq := convertRequest(req)
+	oaiReq.Stream = true
+	body, _ := json.Marshal(oaiReq)
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL+"/v1/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("openai: create stream request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+o.apiKey)
+
+	resp, err := o.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("openai: do stream request: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("openai error (%d): %s", resp.StatusCode, string(b))
+	}
+
+	return &sseStream{reader: bufio.NewReader(resp.Body), body: resp.Body, model: req.Model}, nil
 }
+
+type sseStream struct {
+	reader *bufio.Reader
+	body   io.ReadCloser
+	model  string
+	done   bool
+}
+
+func (s *sseStream) Next() (*provider.StreamEvent, error) {
+	for {
+		if s.done {
+			return nil, io.EOF
+		}
+		line, err := s.reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			s.done = true
+			return &provider.StreamEvent{Type: "done"}, nil
+		}
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+			return &provider.StreamEvent{
+				Type:    "content_delta",
+				Content: provider.ContentBlock{Type: "text", Text: chunk.Choices[0].Delta.Content},
+			}, nil
+		}
+	}
+}
+
+func (s *sseStream) Close() error { return s.body.Close() }
 
 // ValidateCredential implements provider.Provider.
 func (o *OpenAI) ValidateCredential(ctx context.Context, cred provider.Credential) error {

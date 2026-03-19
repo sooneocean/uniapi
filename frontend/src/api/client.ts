@@ -22,6 +22,45 @@ export async function sendMessage(
   };
 }
 
+export async function sendMessageStream(
+  model: string,
+  messages: { role: string; content: string }[],
+  onChunk: (text: string) => void,
+  onDone: (usage: { tokensIn: number; tokensOut: number; latencyMs: number }) => void,
+): Promise<void> {
+  const resp = await fetch('/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ model, messages, stream: true }),
+  });
+
+  const reader = resp.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop()!;
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6);
+      if (data === '[DONE]') {
+        onDone({ tokensIn: 0, tokensOut: 0, latencyMs: 0 });
+        return;
+      }
+      try {
+        const chunk = JSON.parse(data);
+        const content = chunk.choices?.[0]?.delta?.content;
+        if (content) onChunk(content);
+      } catch {}
+    }
+  }
+}
+
 export async function getStatus(): Promise<{ needs_setup: boolean; authenticated: boolean }> {
   const resp = await api.get('/api/status');
   return resp.data;
