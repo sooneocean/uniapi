@@ -21,3 +21,26 @@ export async function sendMessage(
     latencyMs: resp.data.x_uniapi?.latency_ms ?? 0,
   };
 }
+
+export async function getStatus(): Promise<{ needs_setup: boolean; authenticated: boolean }> {
+  const resp = await api.get('/api/status');
+  return resp.data;
+}
+
+export async function setup(username: string, password: string): Promise<void> {
+  await api.post('/api/setup', { username, password });
+}
+
+export async function login(username: string, password: string): Promise<any> {
+  const resp = await api.post('/api/login', { username, password });
+  return resp.data;
+}
+
+export async function logout(): Promise<void> {
+  await api.post('/api/logout');
+}
+
+export async function getMe(): Promise<{ id: string; username: string; role: string }> {
+  const resp = await api.get('/api/me');
+  return resp.data;
+}

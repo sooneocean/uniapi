@@ -19,6 +19,7 @@ import (
     pAnthropic "github.com/user/uniapi/internal/provider/anthropic"
     pGemini "github.com/user/uniapi/internal/provider/gemini"
     pOpenai "github.com/user/uniapi/internal/provider/openai"
+    "github.com/user/uniapi/internal/repo"
     "github.com/user/uniapi/internal/router"
     "github.com/user/uniapi/internal/web"
 )
@@ -106,13 +107,28 @@ func main() {
     // Auth
     jwtKey := crypto.DeriveKey(cfg.Security.Secret)
     jwtMgr := auth.NewJWTManager(jwtKey, 7*24*time.Hour)
-    _ = jwtMgr // will be used for auth routes
+
+    // User repo
+    userRepo := repo.NewUserRepo(database)
 
     // Gin
     gin.SetMode(gin.ReleaseMode)
     engine := gin.New()
     engine.Use(gin.Recovery())
     engine.Use(handler.CORSMiddleware())
+
+    // Auth routes
+    authHandler := handler.NewAuthHandler(userRepo, jwtMgr, database)
+    api := engine.Group("/api")
+    api.GET("/status", authHandler.Status)
+    api.POST("/setup", authHandler.Setup)
+    api.POST("/login", authHandler.Login)
+    api.POST("/logout", authHandler.Logout)
+
+    // Protected auth routes
+    apiAuth := api.Group("")
+    apiAuth.Use(handler.JWTAuthMiddleware(jwtMgr))
+    apiAuth.GET("/me", authHandler.Me)
 
     // API routes
     apiHandler := handler.NewAPIHandler(rtr)

@@ -31,6 +31,27 @@ func ExtractBearerToken(c *gin.Context) string {
     return ""
 }
 
+func JWTAuthMiddleware(jwtMgr *auth.JWTManager) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := ExtractBearerToken(c)
+		if token == "" {
+			token, _ = c.Cookie("token")
+		}
+		if token == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
+			return
+		}
+		claims, err := jwtMgr.ParseToken(token)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+			return
+		}
+		c.Set("user_id", claims.UserID)
+		c.Set("role", claims.Role)
+		c.Next()
+	}
+}
+
 func APIKeyAuthMiddleware(db *sql.DB, jwtMgr *auth.JWTManager) gin.HandlerFunc {
     return func(c *gin.Context) {
         token := ExtractBearerToken(c)
