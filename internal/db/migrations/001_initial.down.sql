@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS api_keys;
+DROP TABLE IF EXISTS usage_daily;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS conversations;
+DROP TABLE IF EXISTS accounts;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS schema_version;
