@@ -1,0 +1,8 @@
+bin/
+*.db
+*.db-wal
+*.db-shm
+.env
+secret
+node_modules/
+dist/
