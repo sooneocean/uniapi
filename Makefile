@@ -1,4 +1,4 @@
-.PHONY: build run test clean frontend
+.PHONY: build run test clean frontend build-linux docker
 
 frontend:
 	cd frontend && npm run build
@@ -13,6 +13,13 @@ run: build
 
 test:
 	go test ./... -v -race
+
+build-linux: frontend
+	GOOS=linux GOARCH=amd64 go build -o bin/uniapi-linux-amd64 ./cmd/uniapi
+	GOOS=linux GOARCH=arm64 go build -o bin/uniapi-linux-arm64 ./cmd/uniapi
+
+docker:
+	docker build -t uniapi/uniapi .
 
 clean:
 	rm -rf bin/ internal/web/dist

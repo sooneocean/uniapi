@@ -10,6 +10,7 @@ import (
 
     "github.com/gin-gonic/gin"
     "github.com/user/uniapi/internal/auth"
+    "github.com/user/uniapi/internal/background"
     "github.com/user/uniapi/internal/cache"
     "github.com/user/uniapi/internal/config"
     "github.com/user/uniapi/internal/crypto"
@@ -70,6 +71,11 @@ func main() {
     database, err := db.Open(dbPath)
     if err != nil { log.Fatalf("database: %v", err) }
     defer database.Close()
+
+    // Background tasks
+    bgTasks := background.New(database.DB, cfg.Storage.RetentionDays)
+    bgTasks.Start()
+    defer bgTasks.Stop()
 
     // Cache
     memCache := cache.New()
