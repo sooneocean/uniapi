@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/user/uniapi/internal/audit"
 	"github.com/user/uniapi/internal/auth"
 	"github.com/user/uniapi/internal/db"
 	"github.com/user/uniapi/internal/repo"
@@ -13,10 +14,11 @@ type AuthHandler struct {
 	userRepo *repo.UserRepo
 	jwtMgr   *auth.JWTManager
 	database *db.Database
+	audit    *audit.Logger
 }
 
-func NewAuthHandler(userRepo *repo.UserRepo, jwtMgr *auth.JWTManager, database *db.Database) *AuthHandler {
-	return &AuthHandler{userRepo: userRepo, jwtMgr: jwtMgr, database: database}
+func NewAuthHandler(userRepo *repo.UserRepo, jwtMgr *auth.JWTManager, database *db.Database, auditLogger *audit.Logger) *AuthHandler {
+	return &AuthHandler{userRepo: userRepo, jwtMgr: jwtMgr, database: database, audit: auditLogger}
 }
 
 func (h *AuthHandler) Status(c *gin.Context) {
@@ -71,10 +73,14 @@ func (h *AuthHandler) Setup(c *gin.Context) {
 		return
 	}
 
-	_, err = h.userRepo.Create(req.Username, passwordHash, "admin")
+	user, err := h.userRepo.Create(req.Username, passwordHash, "admin")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	if h.audit != nil {
+		h.audit.Log(user.ID, user.Username, "setup", "user", user.ID, "initial admin setup", c.ClientIP())
 	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -112,6 +118,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie("token", token, 7*24*3600, "/", "", secure, true)
+
+	if h.audit != nil {
+		h.audit.Log(user.ID, user.Username, "login", "user", user.ID, "", c.ClientIP())
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"ok": true,
 		"user": gin.H{

@@ -2,10 +2,12 @@ package handler
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/user/uniapi/internal/audit"
 	"github.com/user/uniapi/internal/auth"
 	"github.com/user/uniapi/internal/db"
 	"github.com/user/uniapi/internal/repo"
@@ -18,6 +20,7 @@ type SettingsHandler struct {
 	convoRepo   *repo.ConversationRepo
 	recorder    *usage.Recorder
 	database    *db.Database
+	audit       *audit.Logger
 }
 
 func NewSettingsHandler(
@@ -26,6 +29,7 @@ func NewSettingsHandler(
 	convoRepo *repo.ConversationRepo,
 	recorder *usage.Recorder,
 	database *db.Database,
+	auditLogger *audit.Logger,
 ) *SettingsHandler {
 	return &SettingsHandler{
 		accountRepo: accountRepo,
@@ -33,6 +37,7 @@ func NewSettingsHandler(
 		convoRepo:   convoRepo,
 		recorder:    recorder,
 		database:    database,
+		audit:       auditLogger,
 	}
 }
 
@@ -103,6 +108,13 @@ func (h *SettingsHandler) AddProvider(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	if h.audit != nil {
+		uid, _ := c.Get("user_id")
+		userID, _ := uid.(string)
+		h.audit.Log(userID, "", "create_provider", "provider", account.ID, account.Label, c.ClientIP())
+	}
+
 	c.JSON(http.StatusCreated, gin.H{
 		"id":             account.ID,
 		"provider":       account.Provider,
@@ -133,6 +145,13 @@ func (h *SettingsHandler) DeleteProvider(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	if h.audit != nil {
+		uid, _ := c.Get("user_id")
+		userID, _ := uid.(string)
+		h.audit.Log(userID, "", "delete_provider", "provider", id, "", c.ClientIP())
+	}
+
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -188,6 +207,13 @@ func (h *SettingsHandler) CreateUser(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	if h.audit != nil {
+		uid, _ := c.Get("user_id")
+		userID, _ := uid.(string)
+		h.audit.Log(userID, "", "create_user", "user", user.ID, user.Username, c.ClientIP())
+	}
+
 	c.JSON(http.StatusCreated, gin.H{
 		"id":         user.ID,
 		"username":   user.Username,
@@ -205,6 +231,13 @@ func (h *SettingsHandler) DeleteUser(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
+
+	if h.audit != nil {
+		uid, _ := c.Get("user_id")
+		userID, _ := uid.(string)
+		h.audit.Log(userID, "", "delete_user", "user", id, "", c.ClientIP())
+	}
+
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -289,6 +322,11 @@ func (h *SettingsHandler) CreateAPIKey(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	if h.audit != nil {
+		h.audit.Log(userID, "", "create_api_key", "api_key", id, req.Label, c.ClientIP())
+	}
+
 	c.JSON(http.StatusCreated, gin.H{"key": key, "id": id})
 }
 
@@ -566,6 +604,39 @@ func (h *SettingsHandler) GetUsage(c *gin.Context) {
 		results = []usage.DailyUsage{}
 	}
 	c.JSON(http.StatusOK, results)
+}
+
+// ─── Audit log ────────────────────────────────────────────────────────────────
+
+func (h *SettingsHandler) GetAuditLog(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+	limit := 50
+	offset := 0
+	if l := c.Query("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 {
+			limit = v
+		}
+	}
+	if o := c.Query("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+	if h.audit == nil {
+		c.JSON(http.StatusOK, gin.H{"entries": []struct{}{}, "total": 0})
+		return
+	}
+	entries, total, err := h.audit.List(limit, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if entries == nil {
+		entries = []audit.Entry{}
+	}
+	c.JSON(http.StatusOK, gin.H{"entries": entries, "total": total})
 }
 
 func (h *SettingsHandler) GetAllUsage(c *gin.Context) {

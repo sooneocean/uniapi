@@ -2,6 +2,7 @@ package handler
 
 import (
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/user/uniapi/internal/auth"
 	"github.com/user/uniapi/internal/cache"
+	"github.com/user/uniapi/internal/metrics"
 )
 
 // RateLimitMiddleware limits requests per IP using in-memory counters.
@@ -138,6 +140,19 @@ func RequestIDMiddleware() gin.HandlerFunc {
 		c.Set("request_id", requestID)
 		c.Header("X-Request-ID", requestID)
 		c.Next()
+	}
+}
+
+func MetricsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		metrics.ActiveConnections.Inc()
+		start := time.Now()
+		c.Next()
+		duration := time.Since(start).Seconds()
+		status := fmt.Sprintf("%d", c.Writer.Status())
+		metrics.RequestsTotal.WithLabelValues(c.Request.Method, c.FullPath(), status).Inc()
+		metrics.RequestDuration.WithLabelValues(c.Request.Method, c.FullPath()).Observe(duration)
+		metrics.ActiveConnections.Dec()
 	}
 }
 

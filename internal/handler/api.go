@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/user/uniapi/internal/metrics"
 	"github.com/user/uniapi/internal/provider"
 	"github.com/user/uniapi/internal/router"
 	"github.com/user/uniapi/internal/usage"
@@ -67,6 +68,7 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 	resp, err := h.router.Route(c.Request.Context(), chatReq, userID)
 	latency := time.Since(start)
 	if err != nil {
+		metrics.ProviderRequestsTotal.WithLabelValues(req.Model, req.Model, "error").Inc()
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "api_error", "message": err.Error()}})
 		return
 	}
@@ -91,6 +93,11 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 			}
 		}
 	}
+
+	metrics.ProviderRequestsTotal.WithLabelValues(resp.Model, resp.Model, "success").Inc()
+	metrics.ProviderLatency.WithLabelValues(resp.Model, resp.Model).Observe(latency.Seconds())
+	metrics.TokensProcessed.WithLabelValues("input", resp.Model).Add(float64(resp.TokensIn))
+	metrics.TokensProcessed.WithLabelValues("output", resp.Model).Add(float64(resp.TokensOut))
 
 	c.JSON(http.StatusOK, gin.H{
 		"id": "chatcmpl-" + uuid.New().String()[:8], "object": "chat.completion",

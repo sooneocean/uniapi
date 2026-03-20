@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/user/uniapi/internal/audit"
 	"github.com/user/uniapi/internal/auth"
 	"github.com/user/uniapi/internal/background"
 	"github.com/user/uniapi/internal/cache"
@@ -226,6 +228,9 @@ func main() {
 		rtr.AddAccountWithOwner(acc.ID, p, acc.MaxConcurrent, acc.OwnerUserID)
 	}
 
+	// Audit logger
+	auditLogger := audit.NewLogger(database.DB)
+
 	// Gin
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
@@ -233,9 +238,10 @@ func main() {
 	engine.Use(handler.RequestIDMiddleware())
 	engine.Use(handler.RequestLogMiddleware())
 	engine.Use(handler.CORSMiddleware())
+	engine.Use(handler.MetricsMiddleware())
 
 	// Auth routes
-	authHandler := handler.NewAuthHandler(userRepo, jwtMgr, database)
+	authHandler := handler.NewAuthHandler(userRepo, jwtMgr, database, auditLogger)
 	loginLimiter := handler.RateLimitMiddleware(memCache, 10, 1*time.Minute) // 10 attempts per minute
 	api := engine.Group("/api")
 	api.GET("/status", authHandler.Status)
@@ -249,7 +255,7 @@ func main() {
 	apiAuth.GET("/me", authHandler.Me)
 
 	// Settings handler
-	settingsHandler := handler.NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database)
+	settingsHandler := handler.NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database, auditLogger)
 
 	// Provider management (admin only)
 	apiAuth.GET("/providers", settingsHandler.ListProviders)
@@ -279,7 +285,7 @@ func main() {
 	apiAuth.GET("/usage/all", settingsHandler.GetAllUsage)
 
 	// OAuth routes
-	oauthHandler := handler.NewOAuthHandler(oauthMgr, rtr, registerAccount)
+	oauthHandler := handler.NewOAuthHandler(oauthMgr, rtr, registerAccount, auditLogger)
 	oauthGroup := engine.Group("/api/oauth")
 	oauthGroup.GET("/callback/:provider", oauthHandler.Callback) // NO auth — uses state token
 
@@ -303,7 +309,22 @@ func main() {
 	v1.GET("/models", apiHandler.ListModels)
 
 	// Health
-	engine.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
+	engine.GET("/health", func(c *gin.Context) {
+		if err := database.DB.Ping(); err != nil {
+			c.JSON(503, gin.H{"status": "unhealthy", "db": "disconnected", "error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{
+			"status": "ok",
+			"db":     "connected",
+		})
+	})
+
+	// Prometheus metrics
+	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+	// Audit log (admin only)
+	apiAuth.GET("/audit-log", settingsHandler.GetAuditLog)
 
 	web.RegisterFrontend(engine)
 

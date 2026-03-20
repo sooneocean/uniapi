@@ -123,6 +123,11 @@ export async function saveMessage(
 export async function getUsage(range: string) { return (await api.get(`/api/usage?range=${range}`)).data; }
 export async function getAllUsage(range: string) { return (await api.get(`/api/usage/all?range=${range}`)).data; }
 
+// Audit log
+export async function getAuditLog(limit = 50, offset = 0) {
+  return (await api.get(`/api/audit-log?limit=${limit}&offset=${offset}`)).data;
+}
+
 // OAuth / Binding
 export async function getOAuthProviders() {
   return (await api.get('/api/oauth/providers')).data;

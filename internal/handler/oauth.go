@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/user/uniapi/internal/audit"
 	"github.com/user/uniapi/internal/oauth"
 	"github.com/user/uniapi/internal/repo"
 	"github.com/user/uniapi/internal/router"
@@ -16,11 +17,12 @@ type OAuthHandler struct {
 	manager         *oauth.Manager
 	router          *router.Router
 	registerAccount func(acc *repo.Account)
+	audit           *audit.Logger
 }
 
 // NewOAuthHandler creates a new OAuthHandler.
-func NewOAuthHandler(mgr *oauth.Manager, rtr *router.Router, registerFn func(acc *repo.Account)) *OAuthHandler {
-	return &OAuthHandler{manager: mgr, router: rtr, registerAccount: registerFn}
+func NewOAuthHandler(mgr *oauth.Manager, rtr *router.Router, registerFn func(acc *repo.Account), auditLogger *audit.Logger) *OAuthHandler {
+	return &OAuthHandler{manager: mgr, router: rtr, registerAccount: registerFn, audit: auditLogger}
 }
 
 // ListProviders handles GET /api/oauth/providers
@@ -126,6 +128,10 @@ func (h *OAuthHandler) BindSessionToken(c *gin.Context) {
 		h.registerAccount(acc)
 	}
 
+	if h.audit != nil {
+		h.audit.Log(userID, "", "bind_account", "account", acc.ID, providerName, c.ClientIP())
+	}
+
 	c.JSON(200, gin.H{"ok": true, "account": gin.H{
 		"id":       acc.ID,
 		"provider": acc.Provider,
@@ -180,6 +186,11 @@ func (h *OAuthHandler) UnbindAccount(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
+
+	if h.audit != nil {
+		h.audit.Log(userID, "", "unbind_account", "account", accountID, "", c.ClientIP())
+	}
+
 	c.JSON(200, gin.H{"ok": true})
 }
 
