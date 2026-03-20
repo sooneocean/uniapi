@@ -1,221 +1,258 @@
 package main
 
 import (
-    "context"
-    "flag"
-    "fmt"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "path/filepath"
-    "syscall"
-    "time"
+	"context"
+	"flag"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
 
-    "github.com/gin-gonic/gin"
-    "github.com/user/uniapi/internal/auth"
-    "github.com/user/uniapi/internal/background"
-    "github.com/user/uniapi/internal/cache"
-    "github.com/user/uniapi/internal/config"
-    "github.com/user/uniapi/internal/crypto"
-    "github.com/user/uniapi/internal/db"
-    "github.com/user/uniapi/internal/handler"
-    "github.com/user/uniapi/internal/provider"
-    pAnthropic "github.com/user/uniapi/internal/provider/anthropic"
-    pGemini "github.com/user/uniapi/internal/provider/gemini"
-    pOpenai "github.com/user/uniapi/internal/provider/openai"
-    "github.com/user/uniapi/internal/repo"
-    "github.com/user/uniapi/internal/router"
-    "github.com/user/uniapi/internal/usage"
-    "github.com/user/uniapi/internal/web"
+	"github.com/gin-gonic/gin"
+	"github.com/user/uniapi/internal/auth"
+	"github.com/user/uniapi/internal/background"
+	"github.com/user/uniapi/internal/cache"
+	"github.com/user/uniapi/internal/config"
+	"github.com/user/uniapi/internal/crypto"
+	"github.com/user/uniapi/internal/db"
+	"github.com/user/uniapi/internal/handler"
+	"github.com/user/uniapi/internal/logger"
+	"github.com/user/uniapi/internal/provider"
+	pAnthropic "github.com/user/uniapi/internal/provider/anthropic"
+	pGemini "github.com/user/uniapi/internal/provider/gemini"
+	pOpenai "github.com/user/uniapi/internal/provider/openai"
+	"github.com/user/uniapi/internal/repo"
+	"github.com/user/uniapi/internal/router"
+	"github.com/user/uniapi/internal/usage"
+	"github.com/user/uniapi/internal/web"
 )
 
 func main() {
-    port := flag.Int("port", 0, "server port")
-    dataDir := flag.String("data-dir", "", "data directory")
-    secret := flag.String("secret", "", "encryption secret")
-    cfgPath := flag.String("config", "", "config file path")
-    flag.Parse()
+	port := flag.Int("port", 0, "server port")
+	dataDir := flag.String("data-dir", "", "data directory")
+	secret := flag.String("secret", "", "encryption secret")
+	cfgPath := flag.String("config", "", "config file path")
+	flag.Parse()
 
-    // Load config
-    if *cfgPath == "" {
-        home, _ := os.UserHomeDir()
-        defaultCfg := filepath.Join(home, ".uniapi", "config.yaml")
-        if _, err := os.Stat(defaultCfg); err == nil { *cfgPath = defaultCfg }
-    }
-    cfg, err := config.Load(*cfgPath)
-    if err != nil && *cfgPath != "" { log.Fatalf("config: %v", err) }
-    if cfg == nil {
-        cfg = &config.Config{}
-        cfg.Server.Port = 9000; cfg.Server.Host = "0.0.0.0"
-        cfg.Routing.Strategy = "round_robin"; cfg.Routing.MaxRetries = 3; cfg.Routing.FailoverAttempts = 2
-    }
+	// Load config
+	if *cfgPath == "" {
+		home, _ := os.UserHomeDir()
+		defaultCfg := filepath.Join(home, ".uniapi", "config.yaml")
+		if _, err := os.Stat(defaultCfg); err == nil {
+			*cfgPath = defaultCfg
+		}
+	}
+	cfg, err := config.Load(*cfgPath)
+	if err != nil && *cfgPath != "" {
+		slog.Error("config", "error", err)
+		os.Exit(1)
+	}
+	if cfg == nil {
+		cfg = &config.Config{}
+		cfg.Server.Port = 9000
+		cfg.Server.Host = "0.0.0.0"
+		cfg.Routing.Strategy = "round_robin"
+		cfg.Routing.MaxRetries = 3
+		cfg.Routing.FailoverAttempts = 2
+	}
 
-    // CLI overrides
-    if *port > 0 { cfg.Server.Port = *port }
-    if *dataDir != "" { cfg.DataDir = *dataDir }
-    if *secret != "" { cfg.Security.Secret = *secret }
+	// Init structured logger
+	logger.Init(cfg.LogLevel)
 
-    // Data dir
-    if cfg.DataDir == "" {
-        home, _ := os.UserHomeDir()
-        cfg.DataDir = filepath.Join(home, ".uniapi")
-    }
-    os.MkdirAll(cfg.DataDir, 0700)
+	// CLI overrides
+	if *port > 0 {
+		cfg.Server.Port = *port
+	}
+	if *dataDir != "" {
+		cfg.DataDir = *dataDir
+	}
+	if *secret != "" {
+		cfg.Security.Secret = *secret
+	}
 
-    // Secret
-    if cfg.Security.Secret == "" {
-        secretPath := filepath.Join(cfg.DataDir, "secret")
-        cfg.Security.Secret, err = crypto.LoadOrCreateSecret(secretPath)
-        if err != nil { log.Fatalf("secret: %v", err) }
-    }
+	// Data dir
+	if cfg.DataDir == "" {
+		home, _ := os.UserHomeDir()
+		cfg.DataDir = filepath.Join(home, ".uniapi")
+	}
+	os.MkdirAll(cfg.DataDir, 0700)
 
-    // Database
-    dbPath := filepath.Join(cfg.DataDir, "data.db")
-    database, err := db.Open(dbPath)
-    if err != nil { log.Fatalf("database: %v", err) }
-    defer database.Close()
+	// Secret
+	if cfg.Security.Secret == "" {
+		secretPath := filepath.Join(cfg.DataDir, "secret")
+		cfg.Security.Secret, err = crypto.LoadOrCreateSecret(secretPath)
+		if err != nil {
+			slog.Error("secret", "error", err)
+			os.Exit(1)
+		}
+	}
 
-    // Background tasks
-    bgTasks := background.New(database.DB, cfg.Storage.RetentionDays)
-    bgTasks.Start()
-    defer bgTasks.Stop()
+	// Database
+	dbPath := filepath.Join(cfg.DataDir, "data.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		slog.Error("database", "error", err)
+		os.Exit(1)
+	}
+	defer database.Close()
 
-    // Cache
-    memCache := cache.New()
-    defer memCache.Stop()
+	// Background tasks
+	bgTasks := background.New(database.DB, cfg.Storage.RetentionDays)
+	bgTasks.Start()
+	defer bgTasks.Stop()
 
-    // Router
-    rtr := router.New(memCache, router.Config{
-        Strategy: cfg.Routing.Strategy, MaxRetries: cfg.Routing.MaxRetries, FailoverAttempts: cfg.Routing.FailoverAttempts,
-    })
+	// Cache
+	memCache := cache.New()
+	defer memCache.Stop()
 
-    // Register providers
-    for _, pc := range cfg.Providers {
-        for _, acc := range pc.Accounts {
-            var p provider.Provider
-            maxConc := acc.MaxConcurrent
-            if maxConc == 0 { maxConc = 5 }
-            provCfg := provider.ProviderConfig{Name: pc.Name, Type: pc.Type, BaseURL: pc.BaseURL}
-            switch pc.Type {
-            case "anthropic":
-                p = pAnthropic.NewAnthropic(provCfg, acc.Models, acc.APIKey)
-            case "openai":
-                p = pOpenai.NewOpenAI(provCfg, acc.Models, acc.APIKey)
-            case "gemini":
-                p = pGemini.NewGemini(provCfg, acc.Models, acc.APIKey)
-            case "openai_compatible":
-                p = pOpenai.NewOpenAI(provCfg, acc.Models, acc.APIKey)
-            default:
-                log.Printf("Unknown provider type: %s", pc.Type); continue
-            }
-            accountID := fmt.Sprintf("%s-%s", pc.Name, acc.Label)
-            rtr.AddAccount(accountID, p, maxConc)
-            log.Printf("Registered: %s (%s) with %d models", pc.Name, acc.Label, len(acc.Models))
-        }
-    }
+	// Router
+	rtr := router.New(memCache, router.Config{
+		Strategy: cfg.Routing.Strategy, MaxRetries: cfg.Routing.MaxRetries, FailoverAttempts: cfg.Routing.FailoverAttempts,
+	})
 
-    // Auth
-    jwtKey, err := crypto.DeriveKeyWithInfo(cfg.Security.Secret, "uniapi-jwt-signing")
-    if err != nil { log.Fatalf("derive jwt key: %v", err) }
-    jwtMgr := auth.NewJWTManager(jwtKey, 7*24*time.Hour)
+	// Register providers
+	for _, pc := range cfg.Providers {
+		for _, acc := range pc.Accounts {
+			var p provider.Provider
+			maxConc := acc.MaxConcurrent
+			if maxConc == 0 {
+				maxConc = 5
+			}
+			provCfg := provider.ProviderConfig{Name: pc.Name, Type: pc.Type, BaseURL: pc.BaseURL}
+			switch pc.Type {
+			case "anthropic":
+				p = pAnthropic.NewAnthropic(provCfg, acc.Models, acc.APIKey)
+			case "openai":
+				p = pOpenai.NewOpenAI(provCfg, acc.Models, acc.APIKey)
+			case "gemini":
+				p = pGemini.NewGemini(provCfg, acc.Models, acc.APIKey)
+			case "openai_compatible":
+				p = pOpenai.NewOpenAI(provCfg, acc.Models, acc.APIKey)
+			default:
+				slog.Warn("unknown provider type", "type", pc.Type)
+				continue
+			}
+			accountID := fmt.Sprintf("%s-%s", pc.Name, acc.Label)
+			rtr.AddAccount(accountID, p, maxConc)
+			slog.Info("registered provider", "name", pc.Name, "label", acc.Label, "models", len(acc.Models))
+		}
+	}
 
-    // Repos
-    userRepo := repo.NewUserRepo(database)
-    encKey, err := crypto.DeriveKeyWithInfo(cfg.Security.Secret, "uniapi-encryption")
-    if err != nil { log.Fatalf("derive enc key: %v", err) }
-    accountRepo := repo.NewAccountRepo(database, encKey)
-    convoRepo := repo.NewConversationRepo(database)
-    recorder := usage.NewRecorder(database.DB)
+	// Auth
+	jwtKey, err := crypto.DeriveKeyWithInfo(cfg.Security.Secret, "uniapi-jwt-signing")
+	if err != nil {
+		slog.Error("derive jwt key", "error", err)
+		os.Exit(1)
+	}
+	jwtMgr := auth.NewJWTManager(jwtKey, 7*24*time.Hour)
 
-    // Gin
-    gin.SetMode(gin.ReleaseMode)
-    engine := gin.New()
-    engine.Use(gin.Recovery())
-    engine.Use(handler.CORSMiddleware())
+	// Repos
+	userRepo := repo.NewUserRepo(database)
+	encKey, err := crypto.DeriveKeyWithInfo(cfg.Security.Secret, "uniapi-encryption")
+	if err != nil {
+		slog.Error("derive enc key", "error", err)
+		os.Exit(1)
+	}
+	accountRepo := repo.NewAccountRepo(database, encKey)
+	convoRepo := repo.NewConversationRepo(database)
+	recorder := usage.NewRecorder(database.DB)
 
-    // Auth routes
-    authHandler := handler.NewAuthHandler(userRepo, jwtMgr, database)
-    loginLimiter := handler.RateLimitMiddleware(memCache, 10, 1*time.Minute) // 10 attempts per minute
-    api := engine.Group("/api")
-    api.GET("/status", authHandler.Status)
-    api.POST("/setup", loginLimiter, authHandler.Setup)
-    api.POST("/login", loginLimiter, authHandler.Login)
-    api.POST("/logout", authHandler.Logout)
+	// Gin
+	gin.SetMode(gin.ReleaseMode)
+	engine := gin.New()
+	engine.Use(gin.Recovery())
+	engine.Use(handler.RequestIDMiddleware())
+	engine.Use(handler.RequestLogMiddleware())
+	engine.Use(handler.CORSMiddleware())
 
-    // Protected auth routes
-    apiAuth := api.Group("")
-    apiAuth.Use(handler.JWTAuthMiddleware(jwtMgr))
-    apiAuth.GET("/me", authHandler.Me)
+	// Auth routes
+	authHandler := handler.NewAuthHandler(userRepo, jwtMgr, database)
+	loginLimiter := handler.RateLimitMiddleware(memCache, 10, 1*time.Minute) // 10 attempts per minute
+	api := engine.Group("/api")
+	api.GET("/status", authHandler.Status)
+	api.POST("/setup", loginLimiter, authHandler.Setup)
+	api.POST("/login", loginLimiter, authHandler.Login)
+	api.POST("/logout", authHandler.Logout)
 
-    // Settings handler
-    settingsHandler := handler.NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database)
+	// Protected auth routes
+	apiAuth := api.Group("")
+	apiAuth.Use(handler.JWTAuthMiddleware(jwtMgr))
+	apiAuth.GET("/me", authHandler.Me)
 
-    // Provider management (admin only)
-    apiAuth.GET("/providers", settingsHandler.ListProviders)
-    apiAuth.POST("/providers", settingsHandler.AddProvider)
-    apiAuth.DELETE("/providers/:id", settingsHandler.DeleteProvider)
+	// Settings handler
+	settingsHandler := handler.NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database)
 
-    // User management (admin only)
-    apiAuth.GET("/users", settingsHandler.ListUsers)
-    apiAuth.POST("/users", settingsHandler.CreateUser)
-    apiAuth.DELETE("/users/:id", settingsHandler.DeleteUser)
+	// Provider management (admin only)
+	apiAuth.GET("/providers", settingsHandler.ListProviders)
+	apiAuth.POST("/providers", settingsHandler.AddProvider)
+	apiAuth.DELETE("/providers/:id", settingsHandler.DeleteProvider)
 
-    // API key management
-    apiAuth.GET("/api-keys", settingsHandler.ListAPIKeys)
-    apiAuth.POST("/api-keys", settingsHandler.CreateAPIKey)
-    apiAuth.DELETE("/api-keys/:id", settingsHandler.DeleteAPIKey)
+	// User management (admin only)
+	apiAuth.GET("/users", settingsHandler.ListUsers)
+	apiAuth.POST("/users", settingsHandler.CreateUser)
+	apiAuth.DELETE("/users/:id", settingsHandler.DeleteUser)
 
-    // Conversation management
-    apiAuth.GET("/conversations", settingsHandler.ListConversations)
-    apiAuth.POST("/conversations", settingsHandler.CreateConversation)
-    apiAuth.GET("/conversations/:id", settingsHandler.GetConversation)
-    apiAuth.PUT("/conversations/:id", settingsHandler.UpdateConversation)
-    apiAuth.DELETE("/conversations/:id", settingsHandler.DeleteConversation)
-    apiAuth.POST("/conversations/:id/messages", settingsHandler.AddMessage)
+	// API key management
+	apiAuth.GET("/api-keys", settingsHandler.ListAPIKeys)
+	apiAuth.POST("/api-keys", settingsHandler.CreateAPIKey)
+	apiAuth.DELETE("/api-keys/:id", settingsHandler.DeleteAPIKey)
 
-    // Usage
-    apiAuth.GET("/usage", settingsHandler.GetUsage)
-    apiAuth.GET("/usage/all", settingsHandler.GetAllUsage)
+	// Conversation management
+	apiAuth.GET("/conversations", settingsHandler.ListConversations)
+	apiAuth.POST("/conversations", settingsHandler.CreateConversation)
+	apiAuth.GET("/conversations/:id", settingsHandler.GetConversation)
+	apiAuth.PUT("/conversations/:id", settingsHandler.UpdateConversation)
+	apiAuth.DELETE("/conversations/:id", settingsHandler.DeleteConversation)
+	apiAuth.POST("/conversations/:id/messages", settingsHandler.AddMessage)
 
-    // API routes
-    apiHandler := handler.NewAPIHandler(rtr, recorder)
-    v1 := engine.Group("/v1")
-    v1.Use(handler.APIKeyAuthMiddleware(database.DB, jwtMgr))
-    v1.POST("/chat/completions", apiHandler.ChatCompletions)
-    v1.GET("/models", apiHandler.ListModels)
+	// Usage
+	apiAuth.GET("/usage", settingsHandler.GetUsage)
+	apiAuth.GET("/usage/all", settingsHandler.GetAllUsage)
 
-    // Health
-    engine.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
+	// API routes
+	apiHandler := handler.NewAPIHandler(rtr, recorder)
+	v1 := engine.Group("/v1")
+	v1.Use(handler.APIKeyAuthMiddleware(database.DB, jwtMgr))
+	v1.POST("/chat/completions", apiHandler.ChatCompletions)
+	v1.GET("/models", apiHandler.ListModels)
 
-    web.RegisterFrontend(engine)
+	// Health
+	engine.GET("/health", func(c *gin.Context) { c.JSON(200, gin.H{"status": "ok"}) })
 
-    addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-    srv := &http.Server{
-        Addr:         addr,
-        Handler:      engine,
-        ReadTimeout:  30 * time.Second,
-        WriteTimeout: 120 * time.Second, // long for streaming
-        IdleTimeout:  60 * time.Second,
-    }
-    log.Printf("UniAPI starting on %s", addr)
-    go func() {
-        if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-            log.Fatalf("server: %v", err)
-        }
-    }()
+	web.RegisterFrontend(engine)
 
-    // Wait for interrupt signal
-    quit := make(chan os.Signal, 1)
-    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-    <-quit
-    log.Println("Shutting down...")
+	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      engine,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 120 * time.Second, // long for streaming
+		IdleTimeout:  60 * time.Second,
+	}
+	slog.Info("UniAPI starting", "addr", addr)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server", "error", err)
+			os.Exit(1)
+		}
+	}()
 
-    // Graceful shutdown with 10s timeout
-    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-    defer cancel()
-    if err := srv.Shutdown(ctx); err != nil {
-        log.Fatalf("forced shutdown: %v", err)
-    }
-    log.Println("Server stopped")
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	slog.Info("shutting down")
+
+	// Graceful shutdown with 10s timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("forced shutdown", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("server stopped")
 }
