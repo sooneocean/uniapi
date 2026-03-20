@@ -143,15 +143,17 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate }: 
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-900">
+    <div className="flex flex-col h-full" style={{ background: 'var(--bg-primary)' }}>
       {/* Top bar with model selector */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-gray-800">
+      <div className="flex items-center justify-between px-2 md:px-4 py-3 border-b border-gray-700" style={{ background: 'var(--bg-secondary)' }}>
         <span className="text-gray-300 text-sm font-medium">Chat</span>
-        <ModelSelector selectedModel={selectedModel} onModelChange={setSelectedModel} />
+        <div className="max-w-[60%] md:max-w-none">
+          <ModelSelector selectedModel={selectedModel} onModelChange={setSelectedModel} />
+        </div>
       </div>
 
       {/* Message list */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 overflow-y-auto px-2 md:px-4 py-4">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <p className="text-gray-500 text-lg mb-2">Start a conversation</p>
@@ -179,7 +181,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate }: 
       />
 
       {/* Input area */}
-      <div className="px-4 py-3 border-t border-gray-700 bg-gray-800">
+      <div className="px-2 md:px-4 py-3 border-t border-gray-700" style={{ background: 'var(--bg-secondary)' }}>
         <div className="flex items-end gap-2">
           <textarea
             value={input}

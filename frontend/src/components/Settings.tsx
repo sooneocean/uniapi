@@ -25,10 +25,10 @@ export default function Settings({ onClose, userRole }: SettingsProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl mx-4 max-h-[85vh] flex flex-col">
+      <div className="bg-gray-800 rounded-none md:rounded-xl shadow-2xl w-full md:max-w-2xl md:mx-4 h-full md:max-h-[85vh] flex flex-col" style={{ background: 'var(--bg-secondary)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
-          <h1 className="text-white text-lg font-semibold">Settings</h1>
+          <h1 className="text-white text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Settings</h1>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-white transition-colors text-xl leading-none"
@@ -38,13 +38,13 @@ export default function Settings({ onClose, userRole }: SettingsProps) {
           </button>
         </div>
 
-        {/* Tab bar */}
-        <div className="flex gap-1 px-6 pt-3 border-b border-gray-700">
+        {/* Tab bar — scrollable on mobile */}
+        <div className="flex gap-1 px-6 pt-3 border-b border-gray-700 overflow-x-auto">
           {visibleTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap flex-shrink-0 ${
                 activeTab === tab.id
                   ? 'bg-gray-700 text-white border-b-2 border-blue-500'
                   : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/50'

@@ -1,4 +1,6 @@
 import ReactMarkdown from 'react-markdown';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { Message } from '../types';
 
 interface Props {
@@ -21,7 +23,36 @@ export default function MessageBubble({ message }: Props) {
           <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
         ) : (
           <div className="text-sm prose prose-invert prose-sm max-w-none">
-            <ReactMarkdown>{message.content}</ReactMarkdown>
+            <ReactMarkdown
+              components={{
+                code({ node: _node, className, children, ...props }) {
+                  const match = /language-(\w+)/.exec(className || '');
+                  const inline = !match && !String(children).includes('\n');
+                  if (!inline && match) {
+                    return (
+                      <div className="relative group">
+                        <button
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-xs bg-gray-600 px-2 py-1 rounded z-10 text-gray-200 hover:bg-gray-500 transition-colors"
+                          onClick={() => navigator.clipboard.writeText(String(children))}
+                        >
+                          Copy
+                        </button>
+                        <SyntaxHighlighter style={oneDark} language={match[1]} PreTag="div">
+                          {String(children).replace(/\n$/, '')}
+                        </SyntaxHighlighter>
+                      </div>
+                    );
+                  }
+                  return (
+                    <code className="bg-gray-600 px-1 rounded" {...props}>
+                      {children}
+                    </code>
+                  );
+                },
+              }}
+            >
+              {message.content}
+            </ReactMarkdown>
           </div>
         )}
         {(message.tokensIn !== undefined || message.latencyMs !== undefined) && (
