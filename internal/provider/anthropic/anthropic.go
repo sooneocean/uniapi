@@ -66,13 +66,13 @@ type anthropicResponse struct {
 type Anthropic struct {
 	cfg      provider.ProviderConfig
 	modelIDs []string
-	apiKey   string
+	credFunc func() (credential string, authType string)
 	baseURL  string
 	client   *http.Client
 }
 
 // NewAnthropic constructs an Anthropic adapter.
-func NewAnthropic(cfg provider.ProviderConfig, modelIDs []string, apiKey string) *Anthropic {
+func NewAnthropic(cfg provider.ProviderConfig, modelIDs []string, credFunc func() (string, string)) *Anthropic {
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = defaultBaseURL
@@ -80,7 +80,7 @@ func NewAnthropic(cfg provider.ProviderConfig, modelIDs []string, apiKey string)
 	return &Anthropic{
 		cfg:      cfg,
 		modelIDs: modelIDs,
-		apiKey:   apiKey,
+		credFunc: credFunc,
 		baseURL:  baseURL,
 		client:   &http.Client{Timeout: 120 * time.Second},
 	}
@@ -169,8 +169,13 @@ func (a *Anthropic) ChatCompletion(ctx context.Context, req *provider.ChatReques
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: create request: %w", err)
 	}
+	cred, authType := a.credFunc()
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", a.apiKey)
+	if authType == "api_key" {
+		httpReq.Header.Set("x-api-key", cred)
+	} else {
+		httpReq.Header.Set("Authorization", "Bearer "+cred)
+	}
 	httpReq.Header.Set("anthropic-version", anthropicVersion)
 
 	resp, err := a.client.Do(httpReq)
@@ -201,8 +206,13 @@ func (a *Anthropic) ChatCompletionStream(ctx context.Context, req *provider.Chat
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: create stream request: %w", err)
 	}
+	cred, authType := a.credFunc()
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", a.apiKey)
+	if authType == "api_key" {
+		httpReq.Header.Set("x-api-key", cred)
+	} else {
+		httpReq.Header.Set("Authorization", "Bearer "+cred)
+	}
 	httpReq.Header.Set("anthropic-version", anthropicVersion)
 
 	resp, err := a.client.Do(httpReq)

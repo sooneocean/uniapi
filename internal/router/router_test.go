@@ -45,6 +45,28 @@ func TestRouteNoProvider(t *testing.T) {
     if err == nil { t.Error("expected error for unknown model") }
 }
 
+func TestRouteUserOwnership(t *testing.T) {
+    c := cache.New()
+    defer c.Stop()
+    r := New(c, Config{Strategy: "round_robin", MaxRetries: 1, FailoverAttempts: 1})
+
+    shared := &fakeProvider{name: "shared", models: []provider.Model{{ID: "gpt-4o", Provider: "shared"}}}
+    private1 := &fakeProvider{name: "private1", models: []provider.Model{{ID: "gpt-4o", Provider: "private1"}}}
+
+    r.AddAccountWithOwner("shared-acc", shared, 5, "")
+    r.AddAccountWithOwner("priv-acc", private1, 5, "user-1")
+
+    // user-1 sees both
+    resp, err := r.Route(context.Background(), &provider.ChatRequest{Model: "gpt-4o"}, "user-1")
+    if err != nil { t.Fatal(err) }
+    if resp == nil { t.Fatal("expected response") }
+
+    // user-2 sees only shared
+    resp, err = r.Route(context.Background(), &provider.ChatRequest{Model: "gpt-4o"}, "user-2")
+    if err != nil { t.Fatal(err) }
+    if resp == nil { t.Fatal("expected response") }
+}
+
 func TestFailoverToNextAccount(t *testing.T) {
     c := cache.New(); defer c.Stop()
     r := New(c, Config{Strategy: "round_robin", MaxRetries: 1, FailoverAttempts: 2})

@@ -57,8 +57,14 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
+	userID := ""
+	if uid, exists := c.Get("user_id"); exists {
+		if u, ok := uid.(string); ok {
+			userID = u
+		}
+	}
 	start := time.Now()
-	resp, err := h.router.Route(c.Request.Context(), chatReq)
+	resp, err := h.router.Route(c.Request.Context(), chatReq, userID)
 	latency := time.Since(start)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "api_error", "message": err.Error()}})
@@ -96,8 +102,14 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 }
 
 func (h *APIHandler) handleStream(c *gin.Context, req *provider.ChatRequest) {
+	userID := ""
+	if uid, exists := c.Get("user_id"); exists {
+		if u, ok := uid.(string); ok {
+			userID = u
+		}
+	}
 	start := time.Now()
-	stream, err := h.router.RouteStream(c.Request.Context(), req)
+	stream, err := h.router.RouteStream(c.Request.Context(), req, userID)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "api_error", "message": err.Error()}})
 		return

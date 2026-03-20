@@ -56,13 +56,13 @@ type openaiResponse struct {
 type OpenAI struct {
 	cfg      provider.ProviderConfig
 	modelIDs []string
-	apiKey   string
+	credFunc func() (credential string, authType string)
 	baseURL  string
 	client   *http.Client
 }
 
 // NewOpenAI constructs an OpenAI adapter.
-func NewOpenAI(cfg provider.ProviderConfig, modelIDs []string, apiKey string) *OpenAI {
+func NewOpenAI(cfg provider.ProviderConfig, modelIDs []string, credFunc func() (string, string)) *OpenAI {
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = defaultBaseURL
@@ -70,7 +70,7 @@ func NewOpenAI(cfg provider.ProviderConfig, modelIDs []string, apiKey string) *O
 	return &OpenAI{
 		cfg:      cfg,
 		modelIDs: modelIDs,
-		apiKey:   apiKey,
+		credFunc: credFunc,
 		baseURL:  baseURL,
 		client:   &http.Client{Timeout: 120 * time.Second},
 	}
@@ -152,8 +152,9 @@ func (o *OpenAI) ChatCompletion(ctx context.Context, req *provider.ChatRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("openai: create request: %w", err)
 	}
+	cred, _ := o.credFunc()
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+o.apiKey)
+	httpReq.Header.Set("Authorization", "Bearer "+cred)
 
 	resp, err := o.client.Do(httpReq)
 	if err != nil {
@@ -183,8 +184,9 @@ func (o *OpenAI) ChatCompletionStream(ctx context.Context, req *provider.ChatReq
 	if err != nil {
 		return nil, fmt.Errorf("openai: create stream request: %w", err)
 	}
+	cred, _ := o.credFunc()
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+o.apiKey)
+	httpReq.Header.Set("Authorization", "Bearer "+cred)
 
 	resp, err := o.client.Do(httpReq)
 	if err != nil {

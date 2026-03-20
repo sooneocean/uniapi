@@ -145,7 +145,7 @@ func TestChatCompletionIntegration(t *testing.T) {
 		Name:    "anthropic-test",
 		BaseURL: server.URL,
 	}
-	adapter := NewAnthropic(cfg, []string{"claude-3-5-sonnet-20241022"}, "test-anthropic-key")
+	adapter := NewAnthropic(cfg, []string{"claude-3-5-sonnet-20241022"}, func() (string, string) { return "test-anthropic-key", "api_key" })
 
 	req := &provider.ChatRequest{
 		Model: "claude-3-5-sonnet-20241022",

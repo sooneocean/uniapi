@@ -155,7 +155,7 @@ func TestChatCompletionIntegration(t *testing.T) {
 		Name:    "gemini-test",
 		BaseURL: server.URL,
 	}
-	adapter := NewGemini(cfg, []string{"gemini-1.5-flash"}, "test-gemini-key")
+	adapter := NewGemini(cfg, []string{"gemini-1.5-flash"}, func() (string, string) { return "test-gemini-key", "api_key" })
 
 	req := &provider.ChatRequest{
 		Model: "gemini-1.5-flash",

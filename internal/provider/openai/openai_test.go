@@ -131,7 +131,7 @@ func TestChatCompletionIntegration(t *testing.T) {
 		Name:    "openai-test",
 		BaseURL: server.URL,
 	}
-	adapter := NewOpenAI(cfg, []string{"gpt-4o"}, "test-api-key")
+	adapter := NewOpenAI(cfg, []string{"gpt-4o"}, func() (string, string) { return "test-api-key", "api_key" })
 
 	req := &provider.ChatRequest{
 		Model: "gpt-4o",

@@ -22,6 +22,8 @@ type account struct {
     provider      provider.Provider
     maxConcurrent int
     current       int64
+    ownerUserID   string
+    needsReauth   bool
 }
 
 type Router struct {
@@ -37,13 +39,23 @@ func New(c *cache.MemCache, cfg Config) *Router {
 }
 
 func (r *Router) AddAccount(id string, p provider.Provider, maxConcurrent int) {
+    r.AddAccountWithOwner(id, p, maxConcurrent, "")
+}
+
+func (r *Router) AddAccountWithOwner(id string, p provider.Provider, maxConcurrent int, ownerUserID string) {
     r.mu.Lock()
-    r.accounts = append(r.accounts, &account{id: id, provider: p, maxConcurrent: maxConcurrent})
+    r.accounts = append(r.accounts, &account{
+        id: id, provider: p, maxConcurrent: maxConcurrent, ownerUserID: ownerUserID,
+    })
     r.mu.Unlock()
 }
 
-func (r *Router) Route(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
-    candidates := r.findAccounts(req.Model, req.Provider)
+func (r *Router) Route(ctx context.Context, req *provider.ChatRequest, userID ...string) (*provider.ChatResponse, error) {
+    uid := ""
+    if len(userID) > 0 {
+        uid = userID[0]
+    }
+    candidates := r.findAccounts(req.Model, req.Provider, uid)
     if len(candidates) == 0 {
         return nil, fmt.Errorf("no provider available for model: %s", req.Model)
     }
@@ -62,11 +74,19 @@ func (r *Router) Route(ctx context.Context, req *provider.ChatRequest) (*provide
     return nil, fmt.Errorf("all providers failed for model %s: %w", req.Model, lastErr)
 }
 
-func (r *Router) findAccounts(model, providerName string) []*account {
+func (r *Router) findAccounts(model, providerName, userID string) []*account {
     r.mu.RLock()
     defer r.mu.RUnlock()
     var result []*account
     for _, acc := range r.accounts {
+        // Skip private accounts not owned by this user
+        if acc.ownerUserID != "" && acc.ownerUserID != userID {
+            continue
+        }
+        // Skip accounts needing reauth
+        if acc.needsReauth {
+            continue
+        }
         if providerName != "" && acc.provider.Name() != providerName { continue }
         for _, m := range acc.provider.Models() {
             if m.ID == model {
@@ -124,8 +144,12 @@ func (r *Router) tryAccount(ctx context.Context, acc *account, req *provider.Cha
     return nil, lastErr
 }
 
-func (r *Router) RouteStream(ctx context.Context, req *provider.ChatRequest) (provider.Stream, error) {
-    candidates := r.findAccounts(req.Model, req.Provider)
+func (r *Router) RouteStream(ctx context.Context, req *provider.ChatRequest, userID ...string) (provider.Stream, error) {
+    uid := ""
+    if len(userID) > 0 {
+        uid = userID[0]
+    }
+    candidates := r.findAccounts(req.Model, req.Provider, uid)
     if len(candidates) == 0 {
         return nil, fmt.Errorf("no provider available for model: %s", req.Model)
     }

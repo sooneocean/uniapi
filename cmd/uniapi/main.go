@@ -123,15 +123,17 @@ func main() {
 				maxConc = 5
 			}
 			provCfg := provider.ProviderConfig{Name: pc.Name, Type: pc.Type, BaseURL: pc.BaseURL}
+			apiKey := acc.APIKey
+			credFunc := func() (string, string) { return apiKey, "api_key" }
 			switch pc.Type {
 			case "anthropic":
-				p = pAnthropic.NewAnthropic(provCfg, acc.Models, acc.APIKey)
+				p = pAnthropic.NewAnthropic(provCfg, acc.Models, credFunc)
 			case "openai":
-				p = pOpenai.NewOpenAI(provCfg, acc.Models, acc.APIKey)
+				p = pOpenai.NewOpenAI(provCfg, acc.Models, credFunc)
 			case "gemini":
-				p = pGemini.NewGemini(provCfg, acc.Models, acc.APIKey)
+				p = pGemini.NewGemini(provCfg, acc.Models, credFunc)
 			case "openai_compatible":
-				p = pOpenai.NewOpenAI(provCfg, acc.Models, acc.APIKey)
+				p = pOpenai.NewOpenAI(provCfg, acc.Models, credFunc)
 			default:
 				slog.Warn("unknown provider type", "type", pc.Type)
 				continue

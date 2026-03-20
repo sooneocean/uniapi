@@ -53,13 +53,13 @@ type geminiResponse struct {
 type Gemini struct {
 	cfg      provider.ProviderConfig
 	modelIDs []string
-	apiKey   string
+	credFunc func() (credential string, authType string)
 	baseURL  string
 	client   *http.Client
 }
 
 // NewGemini constructs a Gemini adapter.
-func NewGemini(cfg provider.ProviderConfig, modelIDs []string, apiKey string) *Gemini {
+func NewGemini(cfg provider.ProviderConfig, modelIDs []string, credFunc func() (string, string)) *Gemini {
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = defaultBaseURL
@@ -67,7 +67,7 @@ func NewGemini(cfg provider.ProviderConfig, modelIDs []string, apiKey string) *G
 	return &Gemini{
 		cfg:      cfg,
 		modelIDs: modelIDs,
-		apiKey:   apiKey,
+		credFunc: credFunc,
 		baseURL:  baseURL,
 		client:   &http.Client{Timeout: 120 * time.Second},
 	}
@@ -171,12 +171,21 @@ func (g *Gemini) ChatCompletion(ctx context.Context, req *provider.ChatRequest) 
 		return nil, fmt.Errorf("gemini: marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", g.baseURL, req.Model, g.apiKey)
+	cred, authType := g.credFunc()
+	var url string
+	if authType == "api_key" {
+		url = fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", g.baseURL, req.Model, cred)
+	} else {
+		url = fmt.Sprintf("%s/v1beta/models/%s:generateContent", g.baseURL, req.Model)
+	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("gemini: create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if authType != "api_key" {
+		httpReq.Header.Set("Authorization", "Bearer "+cred)
+	}
 
 	resp, err := g.client.Do(httpReq)
 	if err != nil {
