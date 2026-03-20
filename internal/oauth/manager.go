@@ -4,8 +4,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -119,17 +123,16 @@ func (m *Manager) AuthorizeURL(providerName, userID, sessionHash string, shared 
 	}
 
 	redirectURI := fmt.Sprintf("%s/api/oauth/callback/%s", m.baseURL, providerName)
-	scopeStr := ""
-	for i, s := range p.Scopes {
-		if i > 0 {
-			scopeStr += "+"
-		}
-		scopeStr += s
-	}
 
-	url := fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&response_type=code&scope=%s&state=%s",
-		p.AuthURL, clientID, redirectURI, scopeStr, state)
-	return url, nil
+	params := url.Values{}
+	params.Set("client_id", clientID)
+	params.Set("redirect_uri", redirectURI)
+	params.Set("response_type", "code")
+	params.Set("scope", strings.Join(p.Scopes, " "))
+	params.Set("state", state)
+
+	authorizeURL := p.AuthURL + "?" + params.Encode()
+	return authorizeURL, nil
 }
 
 // HandleCallback validates state+session, exchanges code for token, and creates an account.
@@ -164,25 +167,97 @@ func (m *Manager) HandleCallback(providerName, code, state, sessionHash string) 
 		return nil, fmt.Errorf("unknown provider: %s", providerName)
 	}
 
-	// 6. Exchange code for token (simplified — real implementation would call TokenURL)
-	// For now, treat the code as the access token (placeholder for real OAuth exchange)
+	// 6. Exchange code for token
+	accessToken, refreshToken, expiresIn, err := m.exchangeCode(providerName, code)
+	if err != nil {
+		return nil, fmt.Errorf("token exchange failed: %w", err)
+	}
+
 	ownerUserID := storedUserID
 	if shared {
 		ownerUserID = ""
 	}
 
+	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
 	return m.accountRepo.CreateBound(
 		p.ProviderType,
 		fmt.Sprintf("%s (OAuth)", p.DisplayName),
 		"oauth",
-		code, // access token
-		"",   // refresh token (would come from real exchange)
-		time.Time{},
+		providerName,
+		accessToken,
+		refreshToken,
+		expiresAt,
 		p.DefaultModels,
 		5,
 		ownerUserID,
 		false,
 	)
+}
+
+func (m *Manager) exchangeCode(providerName, code string) (accessToken, refreshToken string, expiresIn int, err error) {
+	p, ok := m.providers[providerName]
+	if !ok {
+		return "", "", 0, fmt.Errorf("unknown provider")
+	}
+	if p.TokenURL == "" {
+		return "", "", 0, fmt.Errorf("OAuth token exchange not configured for %s", providerName)
+	}
+
+	// Get client credentials
+	var clientID, clientSecret string
+	switch providerName {
+	case "openai":
+		if m.oauthCfg.OpenAI != nil {
+			clientID = m.oauthCfg.OpenAI.ClientID
+			clientSecret = m.oauthCfg.OpenAI.ClientSecret
+		}
+	case "aliyun":
+		if m.oauthCfg.Qwen != nil {
+			clientID = m.oauthCfg.Qwen.ClientID
+			clientSecret = m.oauthCfg.Qwen.ClientSecret
+		}
+	case "anthropic":
+		if m.oauthCfg.Claude != nil {
+			clientID = m.oauthCfg.Claude.ClientID
+			clientSecret = m.oauthCfg.Claude.ClientSecret
+		}
+	}
+
+	redirectURI := fmt.Sprintf("%s/api/oauth/callback/%s", m.baseURL, providerName)
+
+	// Standard OAuth2 token exchange
+	data := url.Values{}
+	data.Set("grant_type", "authorization_code")
+	data.Set("code", code)
+	data.Set("redirect_uri", redirectURI)
+	data.Set("client_id", clientID)
+	data.Set("client_secret", clientSecret)
+
+	resp, err := http.PostForm(p.TokenURL, data)
+	if err != nil {
+		return "", "", 0, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return "", "", 0, fmt.Errorf("token exchange failed (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return "", "", 0, fmt.Errorf("parse token response: %w", err)
+	}
+
+	if tokenResp.ExpiresIn == 0 {
+		tokenResp.ExpiresIn = 3600 // default 1 hour
+	}
+
+	return tokenResp.AccessToken, tokenResp.RefreshToken, tokenResp.ExpiresIn, nil
 }
 
 // BindSessionToken stores a user-provided session token as a new account.
@@ -201,8 +276,9 @@ func (m *Manager) BindSessionToken(providerName, userID, token string, shared bo
 		p.ProviderType,
 		fmt.Sprintf("%s (session)", p.DisplayName),
 		"session_token",
+		providerName,
 		token,
-		"", // no refresh token for session tokens
+		"",          // no refresh token for session tokens
 		time.Time{}, // no expiry
 		p.DefaultModels,
 		5,

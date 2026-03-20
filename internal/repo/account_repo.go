@@ -80,7 +80,7 @@ func (r *AccountRepo) Create(provider, label, apiKey string, models []string, ma
 }
 
 // CreateBound creates an OAuth/session_token account bound to a specific user.
-func (r *AccountRepo) CreateBound(provider, label, authType, accessToken, refreshToken string, expiresAt time.Time, models []string, maxConcurrent int, ownerUserID string, configManaged bool) (*Account, error) {
+func (r *AccountRepo) CreateBound(provider, label, authType, oauthProvider, accessToken, refreshToken string, expiresAt time.Time, models []string, maxConcurrent int, ownerUserID string, configManaged bool) (*Account, error) {
 	encAccess, err := crypto.Encrypt(r.encKey, accessToken)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt credential: %w", err)
@@ -104,6 +104,7 @@ func (r *AccountRepo) CreateBound(provider, label, authType, accessToken, refres
 		ConfigManaged: configManaged,
 		CreatedAt:     time.Now(),
 		AuthType:      authType,
+		OAuthProvider: oauthProvider,
 		RefreshToken:  refreshToken,
 		OwnerUserID:   ownerUserID,
 	}
@@ -120,13 +121,18 @@ func (r *AccountRepo) CreateBound(provider, label, authType, accessToken, refres
 		ownerVal = ownerUserID
 	}
 
+	var oauthProviderVal interface{}
+	if oauthProvider != "" {
+		oauthProviderVal = oauthProvider
+	}
+
 	_, err = r.db.DB.Exec(
-		`INSERT INTO accounts (id, provider, label, credential, models, max_concurrent, enabled, config_managed, created_at, auth_type, refresh_token, token_expires_at, owner_user_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO accounts (id, provider, label, credential, models, max_concurrent, enabled, config_managed, created_at, auth_type, oauth_provider, refresh_token, token_expires_at, owner_user_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.Provider, a.Label, encAccess,
 		modelsToString(models), a.MaxConcurrent,
 		a.Enabled, a.ConfigManaged, a.CreatedAt,
-		authType, encRefresh, tokenExpiresAt, ownerVal,
+		authType, oauthProviderVal, encRefresh, tokenExpiresAt, ownerVal,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create bound account: %w", err)

@@ -185,7 +185,7 @@ func TestCreateBoundAccount(t *testing.T) {
 	encKey, _ := crypto.DeriveKey("test-secret")
 	repo := NewAccountRepo(database, encKey)
 
-	acc, err := repo.CreateBound("openai", "My OpenAI", "session_token", "access-token", "refresh-token",
+	acc, err := repo.CreateBound("openai", "My OpenAI", "session_token", "openai", "access-token", "refresh-token",
 		time.Now().Add(1*time.Hour), []string{"gpt-4o"}, 5, "user-1", false)
 	if err != nil {
 		t.Fatal(err)
@@ -211,9 +211,9 @@ func TestListForUser(t *testing.T) {
 	// Shared
 	repo.Create("openai", "Shared", "key1", []string{"gpt-4o"}, 5, false)
 	// User-1 private
-	repo.CreateBound("anthropic", "Private", "session_token", "tok", "", time.Time{}, []string{"claude-sonnet-4-20250514"}, 5, "user-1", false)
+	repo.CreateBound("anthropic", "Private", "session_token", "anthropic", "tok", "", time.Time{}, []string{"claude-sonnet-4-20250514"}, 5, "user-1", false)
 	// User-2 private
-	repo.CreateBound("openai", "Private2", "session_token", "tok2", "", time.Time{}, []string{"gpt-4o"}, 5, "user-2", false)
+	repo.CreateBound("openai", "Private2", "session_token", "openai", "tok2", "", time.Time{}, []string{"gpt-4o"}, 5, "user-2", false)
 
 	accounts, _ := repo.ListForUser("user-1")
 	if len(accounts) != 2 {
@@ -226,7 +226,7 @@ func TestSetNeedsReauth(t *testing.T) {
 	encKey, _ := crypto.DeriveKey("test-secret")
 	repo := NewAccountRepo(database, encKey)
 
-	acc, _ := repo.CreateBound("openai", "Test", "session_token", "tok", "refresh", time.Now().Add(1*time.Hour), []string{"gpt-4o"}, 5, "", false)
+	acc, _ := repo.CreateBound("openai", "Test", "session_token", "openai", "tok", "refresh", time.Now().Add(1*time.Hour), []string{"gpt-4o"}, 5, "", false)
 	repo.SetNeedsReauth(acc.ID, true)
 	got, _ := repo.GetByID(acc.ID)
 	if !got.NeedsReauth {
@@ -239,7 +239,7 @@ func TestUpdateCredential(t *testing.T) {
 	encKey, _ := crypto.DeriveKey("test-secret")
 	repo := NewAccountRepo(database, encKey)
 
-	acc, _ := repo.CreateBound("openai", "Test", "session_token", "old", "old-refresh", time.Now().Add(1*time.Hour), []string{"gpt-4o"}, 5, "", false)
+	acc, _ := repo.CreateBound("openai", "Test", "session_token", "openai", "old", "old-refresh", time.Now().Add(1*time.Hour), []string{"gpt-4o"}, 5, "", false)
 	newExp := time.Now().Add(2 * time.Hour)
 	repo.UpdateCredential(acc.ID, "new-token", "new-refresh", newExp)
 	got, _ := repo.GetByID(acc.ID)

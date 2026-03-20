@@ -1,8 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
-	"html/template"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -74,21 +74,21 @@ func (h *OAuthHandler) Callback(c *gin.Context) {
 
 	_, err := h.manager.HandleCallback(providerName, code, state, sessionHash)
 
-	baseURL := h.manager.BaseURL()
+	baseJSON, _ := json.Marshal(h.manager.BaseURL())
 	if err != nil {
-		errMsg := template.HTMLEscapeString(err.Error())
+		errJSON, _ := json.Marshal(err.Error())
 		c.Header("Content-Type", "text/html")
 		c.String(200, fmt.Sprintf(`<html><body><script>
-            window.opener.postMessage('oauth-error:%s', '%s');
+            window.opener.postMessage('oauth-error:'+%s, %s);
             window.close();
-        </script></body></html>`, errMsg, baseURL))
+        </script></body></html>`, string(errJSON), string(baseJSON)))
 		return
 	}
 	c.Header("Content-Type", "text/html")
 	c.String(200, fmt.Sprintf(`<html><body><script>
-        window.opener.postMessage('oauth-done', '%s');
+        window.opener.postMessage('oauth-done', %s);
         window.close();
-    </script></body></html>`, baseURL))
+    </script></body></html>`, string(baseJSON)))
 }
 
 // BindSessionToken handles POST /api/oauth/bind/:provider/session-token
