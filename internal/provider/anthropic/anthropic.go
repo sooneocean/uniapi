@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/user/uniapi/internal/provider"
 )
@@ -81,7 +82,7 @@ func NewAnthropic(cfg provider.ProviderConfig, modelIDs []string, apiKey string)
 		modelIDs: modelIDs,
 		apiKey:   apiKey,
 		baseURL:  baseURL,
-		client:   &http.Client{},
+		client:   &http.Client{Timeout: 120 * time.Second},
 	}
 }
 

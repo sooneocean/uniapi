@@ -4,6 +4,7 @@ import (
     "flag"
     "fmt"
     "log"
+    "net/http"
     "os"
     "path/filepath"
     "time"
@@ -185,6 +186,15 @@ func main() {
     web.RegisterFrontend(engine)
 
     addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+    srv := &http.Server{
+        Addr:         addr,
+        Handler:      engine,
+        ReadTimeout:  30 * time.Second,
+        WriteTimeout: 120 * time.Second, // long for streaming
+        IdleTimeout:  60 * time.Second,
+    }
     log.Printf("UniAPI starting on %s", addr)
-    if err := engine.Run(addr); err != nil { log.Fatalf("server: %v", err) }
+    if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+        log.Fatalf("server: %v", err)
+    }
 }

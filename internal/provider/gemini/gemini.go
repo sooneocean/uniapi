@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/user/uniapi/internal/provider"
 )
@@ -68,7 +69,7 @@ func NewGemini(cfg provider.ProviderConfig, modelIDs []string, apiKey string) *G
 		modelIDs: modelIDs,
 		apiKey:   apiKey,
 		baseURL:  baseURL,
-		client:   &http.Client{},
+		client:   &http.Client{Timeout: 120 * time.Second},
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/user/uniapi/internal/provider"
 )
@@ -71,7 +72,7 @@ func NewOpenAI(cfg provider.ProviderConfig, modelIDs []string, apiKey string) *O
 		modelIDs: modelIDs,
 		apiKey:   apiKey,
 		baseURL:  baseURL,
-		client:   &http.Client{},
+		client:   &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
