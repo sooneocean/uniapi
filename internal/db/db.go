@@ -45,6 +45,13 @@ func Open(dsn string) (*Database, error) {
 }
 
 func (d *Database) migrate() error {
+	// Ensure schema_version table exists
+	d.DB.Exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)")
+
+	// Get current version
+	var currentVersion int
+	d.DB.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_version").Scan(&currentVersion)
+
 	entries, err := migrationsFS.ReadDir("migrations")
 	if err != nil {
 		return err
@@ -58,7 +65,12 @@ func (d *Database) migrate() error {
 	}
 	sort.Strings(upFiles)
 
-	for _, f := range upFiles {
+	for i, f := range upFiles {
+		version := i + 1
+		if version <= currentVersion {
+			continue
+		}
+
 		content, err := migrationsFS.ReadFile("migrations/" + f)
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", f, err)
@@ -66,8 +78,10 @@ func (d *Database) migrate() error {
 		if _, err := d.DB.Exec(string(content)); err != nil {
 			return fmt.Errorf("execute migration %s: %w", f, err)
 		}
+		if _, err := d.DB.Exec("INSERT INTO schema_version (version) VALUES (?)", version); err != nil {
+			return fmt.Errorf("record migration version %d: %w", version, err)
+		}
 	}
-
 	return nil
 }
 

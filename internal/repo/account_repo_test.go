@@ -2,6 +2,7 @@ package repo
 
 import (
 	"testing"
+	"time"
 
 	"github.com/user/uniapi/internal/crypto"
 )
@@ -176,5 +177,73 @@ func TestAccountGetByIDNotFound(t *testing.T) {
 	_, err := repo.GetByID("nonexistent-id")
 	if err == nil {
 		t.Error("expected error for nonexistent account")
+	}
+}
+
+func TestCreateBoundAccount(t *testing.T) {
+	database := setupTestDB(t)
+	encKey, _ := crypto.DeriveKey("test-secret")
+	repo := NewAccountRepo(database, encKey)
+
+	acc, err := repo.CreateBound("openai", "My OpenAI", "session_token", "access-token", "refresh-token",
+		time.Now().Add(1*time.Hour), []string{"gpt-4o"}, 5, "user-1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acc.AuthType != "session_token" {
+		t.Errorf("wrong auth_type: %s", acc.AuthType)
+	}
+	if acc.OwnerUserID != "user-1" {
+		t.Errorf("wrong owner: %s", acc.OwnerUserID)
+	}
+
+	got, _ := repo.GetByID(acc.ID)
+	if got.Credential != "access-token" {
+		t.Error("credential not decrypted")
+	}
+}
+
+func TestListForUser(t *testing.T) {
+	database := setupTestDB(t)
+	encKey, _ := crypto.DeriveKey("test-secret")
+	repo := NewAccountRepo(database, encKey)
+
+	// Shared
+	repo.Create("openai", "Shared", "key1", []string{"gpt-4o"}, 5, false)
+	// User-1 private
+	repo.CreateBound("anthropic", "Private", "session_token", "tok", "", time.Time{}, []string{"claude-sonnet-4-20250514"}, 5, "user-1", false)
+	// User-2 private
+	repo.CreateBound("openai", "Private2", "session_token", "tok2", "", time.Time{}, []string{"gpt-4o"}, 5, "user-2", false)
+
+	accounts, _ := repo.ListForUser("user-1")
+	if len(accounts) != 2 {
+		t.Errorf("expected 2 (shared + private), got %d", len(accounts))
+	}
+}
+
+func TestSetNeedsReauth(t *testing.T) {
+	database := setupTestDB(t)
+	encKey, _ := crypto.DeriveKey("test-secret")
+	repo := NewAccountRepo(database, encKey)
+
+	acc, _ := repo.CreateBound("openai", "Test", "session_token", "tok", "refresh", time.Now().Add(1*time.Hour), []string{"gpt-4o"}, 5, "", false)
+	repo.SetNeedsReauth(acc.ID, true)
+	got, _ := repo.GetByID(acc.ID)
+	if !got.NeedsReauth {
+		t.Error("expected needs_reauth")
+	}
+}
+
+func TestUpdateCredential(t *testing.T) {
+	database := setupTestDB(t)
+	encKey, _ := crypto.DeriveKey("test-secret")
+	repo := NewAccountRepo(database, encKey)
+
+	acc, _ := repo.CreateBound("openai", "Test", "session_token", "old", "old-refresh", time.Now().Add(1*time.Hour), []string{"gpt-4o"}, 5, "", false)
+	newExp := time.Now().Add(2 * time.Hour)
+	repo.UpdateCredential(acc.ID, "new-token", "new-refresh", newExp)
+	got, _ := repo.GetByID(acc.ID)
+	if got.Credential != "new-token" {
+		t.Errorf("expected new-token")
 	}
 }

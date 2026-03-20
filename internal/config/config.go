@@ -39,12 +39,25 @@ type ProviderConfig struct {
 	Accounts []AccountConfig `mapstructure:"accounts"`
 }
 
+type OAuthProviderConfig struct {
+	ClientID     string `mapstructure:"client_id"`
+	ClientSecret string `mapstructure:"client_secret"`
+}
+
+type OAuthConfigs struct {
+	BaseURL string               `mapstructure:"base_url"`
+	OpenAI  *OAuthProviderConfig `mapstructure:"openai"`
+	Qwen    *OAuthProviderConfig `mapstructure:"qwen"`
+	Claude  *OAuthProviderConfig `mapstructure:"claude"`
+}
+
 type Config struct {
 	Server    ServerConfig     `mapstructure:"server"`
 	Security  SecurityConfig   `mapstructure:"security"`
 	Routing   RoutingConfig    `mapstructure:"routing"`
 	Storage   StorageConfig    `mapstructure:"storage"`
 	Providers []ProviderConfig `mapstructure:"providers"`
+	OAuth     OAuthConfigs     `mapstructure:"oauth"`
 	LogLevel  string           `mapstructure:"log_level"`
 	DataDir   string           `mapstructure:"data_dir"`
 }

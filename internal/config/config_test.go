@@ -52,6 +52,31 @@ routing:
 	}
 }
 
+func TestOAuthConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(cfgPath, []byte(`
+oauth:
+  base_url: "https://example.com"
+  qwen:
+    client_id: "test-id"
+    client_secret: "test-secret"
+`), 0644)
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OAuth.BaseURL != "https://example.com" {
+		t.Errorf("wrong base_url")
+	}
+	if cfg.OAuth.Qwen == nil {
+		t.Fatal("missing qwen")
+	}
+	if cfg.OAuth.Qwen.ClientID != "test-id" {
+		t.Error("wrong client_id")
+	}
+}
+
 func TestEnvOverride(t *testing.T) {
 	t.Setenv("UNIAPI_PORT", "7777")
 	cfg, err := Load("")
