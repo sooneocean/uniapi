@@ -1,12 +1,15 @@
 package main
 
 import (
+    "context"
     "flag"
     "fmt"
     "log"
     "net/http"
     "os"
+    "os/signal"
     "path/filepath"
+    "syscall"
     "time"
 
     "github.com/gin-gonic/gin"
@@ -113,13 +116,13 @@ func main() {
     }
 
     // Auth
-    jwtKey, err := crypto.DeriveKey(cfg.Security.Secret)
+    jwtKey, err := crypto.DeriveKeyWithInfo(cfg.Security.Secret, "uniapi-jwt-signing")
     if err != nil { log.Fatalf("derive jwt key: %v", err) }
     jwtMgr := auth.NewJWTManager(jwtKey, 7*24*time.Hour)
 
     // Repos
     userRepo := repo.NewUserRepo(database)
-    encKey, err := crypto.DeriveKey(cfg.Security.Secret)
+    encKey, err := crypto.DeriveKeyWithInfo(cfg.Security.Secret, "uniapi-encryption")
     if err != nil { log.Fatalf("derive enc key: %v", err) }
     accountRepo := repo.NewAccountRepo(database, encKey)
     convoRepo := repo.NewConversationRepo(database)
@@ -133,10 +136,11 @@ func main() {
 
     // Auth routes
     authHandler := handler.NewAuthHandler(userRepo, jwtMgr, database)
+    loginLimiter := handler.RateLimitMiddleware(memCache, 10, 1*time.Minute) // 10 attempts per minute
     api := engine.Group("/api")
     api.GET("/status", authHandler.Status)
-    api.POST("/setup", authHandler.Setup)
-    api.POST("/login", authHandler.Login)
+    api.POST("/setup", loginLimiter, authHandler.Setup)
+    api.POST("/login", loginLimiter, authHandler.Login)
     api.POST("/logout", authHandler.Logout)
 
     // Protected auth routes
@@ -195,7 +199,23 @@ func main() {
         IdleTimeout:  60 * time.Second,
     }
     log.Printf("UniAPI starting on %s", addr)
-    if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-        log.Fatalf("server: %v", err)
+    go func() {
+        if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            log.Fatalf("server: %v", err)
+        }
+    }()
+
+    // Wait for interrupt signal
+    quit := make(chan os.Signal, 1)
+    signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+    <-quit
+    log.Println("Shutting down...")
+
+    // Graceful shutdown with 10s timeout
+    ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+    defer cancel()
+    if err := srv.Shutdown(ctx); err != nil {
+        log.Fatalf("forced shutdown: %v", err)
     }
+    log.Println("Server stopped")
 }

@@ -8,7 +8,40 @@ import (
 
     "github.com/gin-gonic/gin"
     "github.com/user/uniapi/internal/auth"
+    "github.com/user/uniapi/internal/cache"
 )
+
+// RateLimitMiddleware limits requests per IP using in-memory counters.
+func RateLimitMiddleware(c *cache.MemCache, maxRequests int, window time.Duration) gin.HandlerFunc {
+    return func(ctx *gin.Context) {
+        ip := ctx.ClientIP()
+        key := "ratelimit:ip:" + ip
+
+        val, exists := c.Get(key)
+        if !exists {
+            c.Set(key, 1, window)
+            ctx.Next()
+            return
+        }
+
+        count, ok := val.(int)
+        if !ok {
+            c.Set(key, 1, window)
+            ctx.Next()
+            return
+        }
+
+        if count >= maxRequests {
+            ctx.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+                "error": gin.H{"type": "rate_limit_error", "message": "too many requests, try again later"},
+            })
+            return
+        }
+
+        c.Set(key, count+1, window)
+        ctx.Next()
+    }
+}
 
 func CORSMiddleware() gin.HandlerFunc {
     return func(c *gin.Context) {

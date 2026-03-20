@@ -15,13 +15,17 @@ import (
     "golang.org/x/crypto/hkdf"
 )
 
-func DeriveKey(secret string) ([]byte, error) {
-    hkdfReader := hkdf.New(sha256.New, []byte(secret), []byte("uniapi-salt"), []byte("uniapi-encryption"))
+func DeriveKeyWithInfo(secret string, info string) ([]byte, error) {
+    hkdfReader := hkdf.New(sha256.New, []byte(secret), []byte("uniapi-salt"), []byte(info))
     key := make([]byte, 32)
     if _, err := io.ReadFull(hkdfReader, key); err != nil {
         return nil, fmt.Errorf("hkdf key derivation failed: %w", err)
     }
     return key, nil
+}
+
+func DeriveKey(secret string) ([]byte, error) {
+    return DeriveKeyWithInfo(secret, "uniapi-encryption")
 }
 
 func Encrypt(key []byte, plaintext string) (string, error) {
