@@ -68,12 +68,12 @@ func (j *JWTManager) ParseToken(tokenStr string) (*Claims, error) {
     return claims, nil
 }
 
-func GenerateAPIKey() string {
+func GenerateAPIKey() (string, error) {
     b := make([]byte, 32)
     if _, err := rand.Read(b); err != nil {
-        panic(err)
+        return "", fmt.Errorf("generate API key: %w", err)
     }
-    return "uniapi-sk-" + hex.EncodeToString(b)
+    return "uniapi-sk-" + hex.EncodeToString(b), nil
 }
 
 func HashAPIKey(key string) string {

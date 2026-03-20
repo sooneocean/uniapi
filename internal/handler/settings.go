@@ -250,11 +250,15 @@ func (h *SettingsHandler) CreateAPIKey(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	key := auth.GenerateAPIKey()
+	key, err := auth.GenerateAPIKey()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate API key"})
+		return
+	}
 	hash := auth.HashAPIKey(key)
 	id := uuid.New().String()
 	now := time.Now()
-	_, err := h.database.DB.Exec(
+	_, err = h.database.DB.Exec(
 		"INSERT INTO api_keys (id, user_id, key_hash, label, created_at) VALUES (?, ?, ?, ?, ?)",
 		id, userID, hash, req.Label, now,
 	)

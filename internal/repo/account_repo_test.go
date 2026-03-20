@@ -7,7 +7,11 @@ import (
 )
 
 func testEncKey() []byte {
-	return crypto.DeriveKey("test-secret")
+	key, err := crypto.DeriveKey("test-secret")
+	if err != nil {
+		panic(err)
+	}
+	return key
 }
 
 func TestAccountCreateStoresEncryptedCredential(t *testing.T) {

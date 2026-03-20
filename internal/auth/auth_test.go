@@ -52,7 +52,10 @@ func TestJWTExpired(t *testing.T) {
 }
 
 func TestAPIKeyHash(t *testing.T) {
-    key := GenerateAPIKey()
+    key, err := GenerateAPIKey()
+    if err != nil {
+        t.Fatalf("GenerateAPIKey failed: %v", err)
+    }
     if len(key) < 40 {
         t.Errorf("key too short: %s", key)
     }

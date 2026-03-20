@@ -112,12 +112,14 @@ func main() {
     }
 
     // Auth
-    jwtKey := crypto.DeriveKey(cfg.Security.Secret)
+    jwtKey, err := crypto.DeriveKey(cfg.Security.Secret)
+    if err != nil { log.Fatalf("derive jwt key: %v", err) }
     jwtMgr := auth.NewJWTManager(jwtKey, 7*24*time.Hour)
 
     // Repos
     userRepo := repo.NewUserRepo(database)
-    encKey := crypto.DeriveKey(cfg.Security.Secret)
+    encKey, err := crypto.DeriveKey(cfg.Security.Secret)
+    if err != nil { log.Fatalf("derive enc key: %v", err) }
     accountRepo := repo.NewAccountRepo(database, encKey)
     convoRepo := repo.NewConversationRepo(database)
     recorder := usage.NewRecorder(database.DB)

@@ -7,22 +7,34 @@ import (
 )
 
 func TestDeriveKey(t *testing.T) {
-    key := DeriveKey("my-secret-password")
+    key, err := DeriveKey("my-secret-password")
+    if err != nil {
+        t.Fatalf("DeriveKey failed: %v", err)
+    }
     if len(key) != 32 {
         t.Errorf("expected 32-byte key, got %d", len(key))
     }
-    key2 := DeriveKey("my-secret-password")
+    key2, err := DeriveKey("my-secret-password")
+    if err != nil {
+        t.Fatalf("DeriveKey failed: %v", err)
+    }
     if string(key) != string(key2) {
         t.Error("same input should produce same key")
     }
-    key3 := DeriveKey("different-password")
+    key3, err := DeriveKey("different-password")
+    if err != nil {
+        t.Fatalf("DeriveKey failed: %v", err)
+    }
     if string(key) == string(key3) {
         t.Error("different input should produce different key")
     }
 }
 
 func TestEncryptDecrypt(t *testing.T) {
-    key := DeriveKey("test-secret")
+    key, err := DeriveKey("test-secret")
+    if err != nil {
+        t.Fatalf("DeriveKey failed: %v", err)
+    }
     plaintext := "sk-ant-api-key-12345"
     ciphertext, err := Encrypt(key, plaintext)
     if err != nil {
@@ -41,8 +53,14 @@ func TestEncryptDecrypt(t *testing.T) {
 }
 
 func TestDecryptWrongKey(t *testing.T) {
-    key1 := DeriveKey("secret-1")
-    key2 := DeriveKey("secret-2")
+    key1, err := DeriveKey("secret-1")
+    if err != nil {
+        t.Fatalf("DeriveKey failed: %v", err)
+    }
+    key2, err := DeriveKey("secret-2")
+    if err != nil {
+        t.Fatalf("DeriveKey failed: %v", err)
+    }
     ciphertext, err := Encrypt(key1, "sensitive data")
     if err != nil {
         t.Fatal(err)
