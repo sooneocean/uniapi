@@ -448,6 +448,58 @@ func (h *SettingsHandler) UpdateConversation(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+func (h *SettingsHandler) AddMessage(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+	convoID := c.Param("id")
+	conv, err := h.convoRepo.GetByID(convoID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		return
+	}
+	if conv.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+	var req struct {
+		Role      string  `json:"role"`
+		Content   string  `json:"content"`
+		Model     string  `json:"model"`
+		TokensIn  int     `json:"tokens_in"`
+		TokensOut int     `json:"tokens_out"`
+		Cost      float64 `json:"cost"`
+		LatencyMs int     `json:"latency_ms"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	msg := &repo.MessageRecord{
+		ID:             uuid.New().String(),
+		ConversationID: convoID,
+		Role:           req.Role,
+		Content:        req.Content,
+		Model:          req.Model,
+		TokensIn:       req.TokensIn,
+		TokensOut:      req.TokensOut,
+		Cost:           req.Cost,
+		LatencyMs:      req.LatencyMs,
+	}
+	if err := h.convoRepo.AddMessage(msg); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "id": msg.ID})
+}
+
 func (h *SettingsHandler) DeleteConversation(c *gin.Context) {
 	userIDVal, exists := c.Get("user_id")
 	if !exists {

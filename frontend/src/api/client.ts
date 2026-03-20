@@ -104,6 +104,20 @@ export async function getConversations() { return (await api.get('/api/conversat
 export async function createConversation(title: string) { return (await api.post('/api/conversations', { title })).data; }
 export async function getConversation(id: string) { return (await api.get(`/api/conversations/${id}`)).data; }
 export async function deleteConversation(id: string) { await api.delete(`/api/conversations/${id}`); }
+export async function saveMessage(
+  conversationId: string,
+  message: {
+    role: string;
+    content: string;
+    model?: string;
+    tokens_in?: number;
+    tokens_out?: number;
+    cost?: number;
+    latency_ms?: number;
+  }
+) {
+  return (await api.post(`/api/conversations/${conversationId}/messages`, message)).data;
+}
 
 // Usage
 export async function getUsage(range: string) { return (await api.get(`/api/usage?range=${range}`)).data; }

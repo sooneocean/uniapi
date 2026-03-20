@@ -34,7 +34,7 @@ func setupTestRouter() *gin.Engine {
     fake := &fakeProvider{name: "test", models: []provider.Model{{ID: "test-model", Name: "test-model", Provider: "test"}}}
     r.AddAccount("acc1", fake, 5)
     engine := gin.New()
-    api := NewAPIHandler(r)
+    api := NewAPIHandler(r, nil)
     v1 := engine.Group("/v1")
     v1.POST("/chat/completions", api.ChatCompletions)
     v1.GET("/models", api.ListModels)

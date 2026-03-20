@@ -168,13 +168,14 @@ func main() {
     apiAuth.GET("/conversations/:id", settingsHandler.GetConversation)
     apiAuth.PUT("/conversations/:id", settingsHandler.UpdateConversation)
     apiAuth.DELETE("/conversations/:id", settingsHandler.DeleteConversation)
+    apiAuth.POST("/conversations/:id/messages", settingsHandler.AddMessage)
 
     // Usage
     apiAuth.GET("/usage", settingsHandler.GetUsage)
     apiAuth.GET("/usage/all", settingsHandler.GetAllUsage)
 
     // API routes
-    apiHandler := handler.NewAPIHandler(rtr)
+    apiHandler := handler.NewAPIHandler(rtr, recorder)
     v1 := engine.Group("/v1")
     v1.Use(handler.APIKeyAuthMiddleware(database.DB, jwtMgr))
     v1.POST("/chat/completions", apiHandler.ChatCompletions)

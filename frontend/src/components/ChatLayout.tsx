@@ -3,10 +3,10 @@ import type { Conversation } from '../types';
 import Sidebar from './Sidebar';
 import ChatArea from './ChatArea';
 import Settings from './Settings';
-import { getMe, logout } from '../api/client';
+import { getMe, logout, getConversations, createConversation } from '../api/client';
 
 export default function ChatLayout() {
-  const [conversations] = useState<Conversation[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [userRole, setUserRole] = useState<string>('member');
@@ -15,12 +15,30 @@ export default function ChatLayout() {
     getMe().then((me) => setUserRole(me.role)).catch(() => {});
   }, []);
 
-  const handleNewChat = () => {
-    setActiveConversationId(null);
+  useEffect(() => {
+    getConversations()
+      .then((convs) => setConversations(convs))
+      .catch(() => {});
+  }, []);
+
+  const handleNewChat = async () => {
+    try {
+      const conv = await createConversation('New Chat');
+      setConversations((prev) => [conv, ...prev]);
+      setActiveConversationId(conv.id);
+    } catch {
+      setActiveConversationId(null);
+    }
   };
 
   const handleSelectConversation = (id: string) => {
     setActiveConversationId(id);
+  };
+
+  const handleConversationTitleUpdate = (id: string, title: string) => {
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, title } : c))
+    );
   };
 
   const handleLogout = async () => {
@@ -59,7 +77,10 @@ export default function ChatLayout() {
           </button>
         </div>
         <div className="flex-1 overflow-hidden">
-          <ChatArea />
+          <ChatArea
+            conversationId={activeConversationId}
+            onConversationTitleUpdate={handleConversationTitleUpdate}
+          />
         </div>
       </div>
 

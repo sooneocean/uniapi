@@ -1,18 +1,53 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { Message } from '../types';
-import { sendMessageStream } from '../api/client';
+import { sendMessageStream, getConversation, saveMessage } from '../api/client';
 import ModelSelector from './ModelSelector';
 import MessageBubble from './MessageBubble';
 import StatusBar from './StatusBar';
 
-export default function ChatArea() {
+interface Props {
+  conversationId: string | null;
+  onConversationTitleUpdate?: (id: string, title: string) => void;
+}
+
+export default function ChatArea({ conversationId, onConversationTitleUpdate }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
   const [loading, setLoading] = useState(false);
   const [lastStats, setLastStats] = useState({ tokensIn: 0, tokensOut: 0, latencyMs: 0 });
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // Load messages when conversation changes
+  useEffect(() => {
+    if (!conversationId) {
+      setMessages([]);
+      return;
+    }
+    getConversation(conversationId)
+      .then((conv) => {
+        const msgs: Message[] = (conv.messages ?? []).map((m: any) => ({
+          id: m.id,
+          role: m.role as Message['role'],
+          content: m.content,
+          model: m.model || undefined,
+          tokensIn: m.tokens_in || undefined,
+          tokensOut: m.tokens_out || undefined,
+          cost: m.cost || undefined,
+          latencyMs: m.latency_ms || undefined,
+          createdAt: m.created_at,
+        }));
+        setMessages(msgs);
+        // Update title in sidebar if changed
+        if (onConversationTitleUpdate && conv.title) {
+          onConversationTitleUpdate(conversationId, conv.title);
+        }
+      })
+      .catch(() => {
+        setMessages([]);
+      });
+  }, [conversationId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -34,6 +69,11 @@ export default function ChatArea() {
     setInput('');
     setLoading(true);
 
+    // Save user message to conversation if we have one
+    if (conversationId) {
+      saveMessage(conversationId, { role: 'user', content: text }).catch(() => {});
+    }
+
     const assistantId = uuidv4();
     const assistantMsg: Message = {
       id: assistantId,
@@ -44,17 +84,22 @@ export default function ChatArea() {
     };
     setMessages((prev) => [...prev, assistantMsg]);
 
+    let finalContent = '';
+    let finalUsage = { tokensIn: 0, tokensOut: 0, latencyMs: 0 };
+
     try {
       const apiMessages = nextMessages.map((m) => ({ role: m.role, content: m.content }));
       await sendMessageStream(
         selectedModel,
         apiMessages,
         (chunk) => {
+          finalContent += chunk;
           setMessages((prev) =>
             prev.map((m) => m.id === assistantId ? { ...m, content: m.content + chunk } : m)
           );
         },
         (usage) => {
+          finalUsage = usage;
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
@@ -65,6 +110,18 @@ export default function ChatArea() {
           setLastStats(usage);
         },
       );
+
+      // Save assistant message to conversation
+      if (conversationId) {
+        saveMessage(conversationId, {
+          role: 'assistant',
+          content: finalContent,
+          model: selectedModel,
+          tokens_in: finalUsage.tokensIn,
+          tokens_out: finalUsage.tokensOut,
+          latency_ms: finalUsage.latencyMs,
+        }).catch(() => {});
+      }
     } catch (err) {
       setMessages((prev) =>
         prev.map((m) =>
