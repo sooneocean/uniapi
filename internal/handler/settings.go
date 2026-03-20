@@ -37,8 +37,13 @@ func NewSettingsHandler(
 }
 
 func requireAdmin(c *gin.Context) bool {
-	role, _ := c.Get("role")
-	if role != "admin" {
+	roleVal, exists := c.Get("role")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return false
+	}
+	role, ok := roleVal.(string)
+	if !ok || role != "admin" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "admin required"})
 		return false
 	}
@@ -206,7 +211,16 @@ func (h *SettingsHandler) DeleteUser(c *gin.Context) {
 // ─── API Key management ───────────────────────────────────────────────────────
 
 func (h *SettingsHandler) ListAPIKeys(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
 	rows, err := h.database.DB.Query(
 		"SELECT id, label, created_at, expires_at FROM api_keys WHERE user_id = ? ORDER BY created_at DESC",
 		userID,
@@ -244,7 +258,16 @@ type createAPIKeyRequest struct {
 }
 
 func (h *SettingsHandler) CreateAPIKey(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
 	var req createAPIKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -270,7 +293,16 @@ func (h *SettingsHandler) CreateAPIKey(c *gin.Context) {
 }
 
 func (h *SettingsHandler) DeleteAPIKey(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
 	id := c.Param("id")
 	result, err := h.database.DB.Exec(
 		"DELETE FROM api_keys WHERE id = ? AND user_id = ?",
@@ -291,8 +323,17 @@ func (h *SettingsHandler) DeleteAPIKey(c *gin.Context) {
 // ─── Conversation management ──────────────────────────────────────────────────
 
 func (h *SettingsHandler) ListConversations(c *gin.Context) {
-	userID, _ := c.Get("user_id")
-	convs, err := h.convoRepo.ListByUser(userID.(string))
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+	convs, err := h.convoRepo.ListByUser(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -308,13 +349,22 @@ type createConversationRequest struct {
 }
 
 func (h *SettingsHandler) CreateConversation(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
 	var req createConversationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	conv, err := h.convoRepo.Create(userID.(string), req.Title)
+	conv, err := h.convoRepo.Create(userID, req.Title)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -323,14 +373,23 @@ func (h *SettingsHandler) CreateConversation(c *gin.Context) {
 }
 
 func (h *SettingsHandler) GetConversation(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
 	id := c.Param("id")
 	conv, err := h.convoRepo.GetByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
 		return
 	}
-	if conv.UserID != userID.(string) {
+	if conv.UserID != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 		return
 	}
@@ -357,14 +416,23 @@ type updateConversationRequest struct {
 }
 
 func (h *SettingsHandler) UpdateConversation(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
 	id := c.Param("id")
 	conv, err := h.convoRepo.GetByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
 		return
 	}
-	if conv.UserID != userID.(string) {
+	if conv.UserID != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 		return
 	}
@@ -381,14 +449,23 @@ func (h *SettingsHandler) UpdateConversation(c *gin.Context) {
 }
 
 func (h *SettingsHandler) DeleteConversation(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
 	id := c.Param("id")
 	conv, err := h.convoRepo.GetByID(id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
 		return
 	}
-	if conv.UserID != userID.(string) {
+	if conv.UserID != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 		return
 	}
@@ -417,9 +494,18 @@ func dateRangeFromQuery(c *gin.Context) (time.Time, time.Time) {
 }
 
 func (h *SettingsHandler) GetUsage(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
 	from, to := dateRangeFromQuery(c)
-	results, err := h.recorder.GetUserUsage(userID.(string), from, to)
+	results, err := h.recorder.GetUserUsage(userID, from, to)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
