@@ -152,7 +152,8 @@ func (o *OpenAI) ChatCompletion(ctx context.Context, req *provider.ChatRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("openai: create request: %w", err)
 	}
-	cred, _ := o.credFunc()
+	cred, authType := o.credFunc()
+	_ = authType // OpenAI and openai_compatible both use Bearer regardless of authType
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+cred)
 
@@ -184,7 +185,8 @@ func (o *OpenAI) ChatCompletionStream(ctx context.Context, req *provider.ChatReq
 	if err != nil {
 		return nil, fmt.Errorf("openai: create stream request: %w", err)
 	}
-	cred, _ := o.credFunc()
+	cred, authType := o.credFunc()
+	_ = authType // OpenAI and openai_compatible both use Bearer regardless of authType
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+cred)
 
@@ -202,10 +204,12 @@ func (o *OpenAI) ChatCompletionStream(ctx context.Context, req *provider.ChatReq
 }
 
 type sseStream struct {
-	reader *bufio.Reader
-	body   io.ReadCloser
-	model  string
-	done   bool
+	reader    *bufio.Reader
+	body      io.ReadCloser
+	model     string
+	done      bool
+	tokensIn  int
+	tokensOut int
 }
 
 func (s *sseStream) Next() (*provider.StreamEvent, error) {
@@ -227,7 +231,14 @@ func (s *sseStream) Next() (*provider.StreamEvent, error) {
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
 			s.done = true
-			return &provider.StreamEvent{Type: "done"}, nil
+			return &provider.StreamEvent{
+				Type: "done",
+				Response: &provider.ChatResponse{
+					Model:     s.model,
+					TokensIn:  s.tokensIn,
+					TokensOut: s.tokensOut,
+				},
+			}, nil
 		}
 		var chunk struct {
 			Choices []struct {
@@ -235,9 +246,17 @@ func (s *sseStream) Next() (*provider.StreamEvent, error) {
 					Content string `json:"content"`
 				} `json:"delta"`
 			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
+		}
+		if chunk.Usage != nil {
+			s.tokensIn = chunk.Usage.PromptTokens
+			s.tokensOut = chunk.Usage.CompletionTokens
 		}
 		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
 			return &provider.StreamEvent{

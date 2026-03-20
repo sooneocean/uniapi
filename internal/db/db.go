@@ -71,15 +71,27 @@ func (d *Database) migrate() error {
 			continue
 		}
 
+		tx, err := d.DB.Begin()
+		if err != nil {
+			return fmt.Errorf("begin tx for migration %s: %w", f, err)
+		}
+
 		content, err := migrationsFS.ReadFile("migrations/" + f)
 		if err != nil {
+			tx.Rollback()
 			return fmt.Errorf("read migration %s: %w", f, err)
 		}
-		if _, err := d.DB.Exec(string(content)); err != nil {
+		if _, err := tx.Exec(string(content)); err != nil {
+			tx.Rollback()
 			return fmt.Errorf("execute migration %s: %w", f, err)
 		}
-		if _, err := d.DB.Exec("INSERT INTO schema_version (version) VALUES (?)", version); err != nil {
-			return fmt.Errorf("record migration version %d: %w", version, err)
+		if _, err := tx.Exec("INSERT INTO schema_version (version) VALUES (?)", version); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("record version %d: %w", version, err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration %s: %w", f, err)
 		}
 	}
 	return nil

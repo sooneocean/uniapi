@@ -61,31 +61,35 @@ func (b *BackgroundTasks) cleanup() {
 	}
 	cutoff := time.Now().AddDate(0, 0, -b.retentionDays).Format("2006-01-02T15:04:05")
 
-	// Delete old messages first (due to FK), then conversations
-	result, err := b.db.Exec(`
-        DELETE FROM messages WHERE conversation_id IN (
-            SELECT id FROM conversations WHERE updated_at < ?
-        )
-    `, cutoff)
+	tx, err := b.db.Begin()
 	if err != nil {
-		slog.Error("background: cleanup messages error", "error", err)
+		slog.Error("cleanup tx begin", "error", err)
+		return
+	}
+
+	result, err := tx.Exec(`DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE updated_at < ?)`, cutoff)
+	if err != nil {
+		tx.Rollback()
+		slog.Error("cleanup messages", "error", err)
 		return
 	}
 	msgCount, _ := result.RowsAffected()
 
-	result, err = b.db.Exec("DELETE FROM conversations WHERE updated_at < ?", cutoff)
+	result, err = tx.Exec("DELETE FROM conversations WHERE updated_at < ?", cutoff)
 	if err != nil {
-		slog.Error("background: cleanup conversations error", "error", err)
+		tx.Rollback()
+		slog.Error("cleanup conversations", "error", err)
 		return
 	}
 	convoCount, _ := result.RowsAffected()
 
+	if err := tx.Commit(); err != nil {
+		slog.Error("cleanup commit", "error", err)
+		return
+	}
+
 	if convoCount > 0 || msgCount > 0 {
-		slog.Info("background: cleanup complete",
-			"conversations", convoCount,
-			"messages", msgCount,
-			"retention_days", b.retentionDays,
-		)
+		slog.Info("cleanup", "conversations", convoCount, "messages", msgCount, "retention_days", b.retentionDays)
 	}
 }
 

@@ -140,63 +140,11 @@ func (r *AccountRepo) CreateBound(provider, label, authType, oauthProvider, acce
 	return a, nil
 }
 
-func (r *AccountRepo) scanAccountRow(rows interface {
-	Scan(dest ...any) error
-}) (*Account, error) {
-	var a Account
-	var encCredential string
-	var modelsStr string
-	var authType sql.NullString
-	var oauthProvider sql.NullString
-	var encRefreshToken sql.NullString
-	var tokenExpiresAt sql.NullTime
-	var ownerUserID sql.NullString
-	var needsReauth bool
-
-	err := rows.Scan(
-		&a.ID, &a.Provider, &a.Label, &encCredential,
-		&modelsStr, &a.MaxConcurrent, &a.Enabled, &a.ConfigManaged, &a.CreatedAt,
-		&authType, &oauthProvider, &encRefreshToken, &tokenExpiresAt, &ownerUserID, &needsReauth,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	decrypted, err := crypto.Decrypt(r.encKey, encCredential)
-	if err != nil {
-		return nil, fmt.Errorf("decrypt credential: %w", err)
-	}
-	a.Credential = decrypted
-	a.Models = stringToModels(modelsStr)
-
-	if authType.Valid {
-		a.AuthType = authType.String
-	} else {
-		a.AuthType = "api_key"
-	}
-	if oauthProvider.Valid {
-		a.OAuthProvider = oauthProvider.String
-	}
-	if encRefreshToken.Valid && encRefreshToken.String != "" {
-		decRefresh, err := crypto.Decrypt(r.encKey, encRefreshToken.String)
-		if err != nil {
-			return nil, fmt.Errorf("decrypt refresh_token: %w", err)
-		}
-		a.RefreshToken = decRefresh
-	}
-	if tokenExpiresAt.Valid {
-		t := tokenExpiresAt.Time
-		a.TokenExpiresAt = &t
-	}
-	if ownerUserID.Valid {
-		a.OwnerUserID = ownerUserID.String
-	}
-	a.NeedsReauth = needsReauth
-
-	return &a, nil
+type scanner interface {
+	Scan(dest ...interface{}) error
 }
 
-func (r *AccountRepo) scanAccount(row *sql.Row) (*Account, error) {
+func (r *AccountRepo) scanInto(s scanner) (*Account, error) {
 	var a Account
 	var encCredential string
 	var modelsStr string
@@ -207,14 +155,11 @@ func (r *AccountRepo) scanAccount(row *sql.Row) (*Account, error) {
 	var ownerUserID sql.NullString
 	var needsReauth bool
 
-	err := row.Scan(
+	err := s.Scan(
 		&a.ID, &a.Provider, &a.Label, &encCredential,
 		&modelsStr, &a.MaxConcurrent, &a.Enabled, &a.ConfigManaged, &a.CreatedAt,
 		&authType, &oauthProvider, &encRefreshToken, &tokenExpiresAt, &ownerUserID, &needsReauth,
 	)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("account not found")
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -262,9 +207,9 @@ func (r *AccountRepo) GetByID(id string) (*Account, error) {
 		 FROM accounts WHERE id = ?`,
 		id,
 	)
-	a, err := r.scanAccount(row)
+	a, err := r.scanInto(row)
 	if err != nil {
-		if strings.Contains(err.Error(), "account not found") {
+		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("account not found: %s", id)
 		}
 		return nil, err
@@ -283,7 +228,7 @@ func (r *AccountRepo) ListAll() ([]Account, error) {
 	defer rows.Close()
 	var accounts []Account
 	for rows.Next() {
-		a, err := r.scanAccountRow(rows)
+		a, err := r.scanInto(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -308,7 +253,7 @@ func (r *AccountRepo) ListForUser(userID string) ([]Account, error) {
 	defer rows.Close()
 	var accounts []Account
 	for rows.Next() {
-		a, err := r.scanAccountRow(rows)
+		a, err := r.scanInto(rows)
 		if err != nil {
 			return nil, err
 		}

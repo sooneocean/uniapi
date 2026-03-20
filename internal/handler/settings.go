@@ -16,12 +16,13 @@ import (
 )
 
 type SettingsHandler struct {
-	accountRepo *repo.AccountRepo
-	userRepo    *repo.UserRepo
-	convoRepo   *repo.ConversationRepo
-	recorder    *usage.Recorder
-	database    *db.Database
-	audit       *audit.Logger
+	accountRepo     *repo.AccountRepo
+	userRepo        *repo.UserRepo
+	convoRepo       *repo.ConversationRepo
+	recorder        *usage.Recorder
+	database        *db.Database
+	audit           *audit.Logger
+	registerAccount func(acc *repo.Account)
 }
 
 func NewSettingsHandler(
@@ -31,14 +32,16 @@ func NewSettingsHandler(
 	recorder *usage.Recorder,
 	database *db.Database,
 	auditLogger *audit.Logger,
+	registerAccount func(acc *repo.Account),
 ) *SettingsHandler {
 	return &SettingsHandler{
-		accountRepo: accountRepo,
-		userRepo:    userRepo,
-		convoRepo:   convoRepo,
-		recorder:    recorder,
-		database:    database,
-		audit:       auditLogger,
+		accountRepo:     accountRepo,
+		userRepo:        userRepo,
+		convoRepo:       convoRepo,
+		recorder:        recorder,
+		database:        database,
+		audit:           auditLogger,
+		registerAccount: registerAccount,
 	}
 }
 
@@ -108,6 +111,10 @@ func (h *SettingsHandler) AddProvider(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	if h.registerAccount != nil {
+		h.registerAccount(account)
 	}
 
 	if h.audit != nil {
@@ -233,6 +240,14 @@ func (h *SettingsHandler) DeleteUser(c *gin.Context) {
 		return
 	}
 	id := c.Param("id")
+
+	// Prevent self-deletion
+	uid, _ := c.Get("user_id")
+	if currentUID, ok := uid.(string); ok && currentUID == id {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete your own account"})
+		return
+	}
+
 	if err := h.userRepo.Delete(id); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return

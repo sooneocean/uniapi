@@ -234,6 +234,8 @@ type anthropicStream struct {
 	model     string
 	done      bool
 	eventType string
+	tokensIn  int
+	tokensOut int
 }
 
 func (s *anthropicStream) Next() (*provider.StreamEvent, error) {
@@ -258,9 +260,36 @@ func (s *anthropicStream) Next() (*provider.StreamEvent, error) {
 		}
 		data := strings.TrimPrefix(line, "data: ")
 		switch s.eventType {
+		case "message_start":
+			var msg struct {
+				Message struct {
+					Usage struct {
+						InputTokens int `json:"input_tokens"`
+					} `json:"usage"`
+				} `json:"message"`
+			}
+			if err := json.Unmarshal([]byte(data), &msg); err == nil {
+				s.tokensIn = msg.Message.Usage.InputTokens
+			}
+		case "message_delta":
+			var delta struct {
+				Usage struct {
+					OutputTokens int `json:"output_tokens"`
+				} `json:"usage"`
+			}
+			if err := json.Unmarshal([]byte(data), &delta); err == nil {
+				s.tokensOut = delta.Usage.OutputTokens
+			}
 		case "message_stop":
 			s.done = true
-			return &provider.StreamEvent{Type: "done"}, nil
+			return &provider.StreamEvent{
+				Type: "done",
+				Response: &provider.ChatResponse{
+					Model:     s.model,
+					TokensIn:  s.tokensIn,
+					TokensOut: s.tokensOut,
+				},
+			}, nil
 		case "content_block_delta":
 			var chunk struct {
 				Delta struct {

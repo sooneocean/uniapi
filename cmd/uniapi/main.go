@@ -255,7 +255,7 @@ func main() {
 	apiAuth.GET("/me", authHandler.Me)
 
 	// Settings handler
-	settingsHandler := handler.NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database, auditLogger)
+	settingsHandler := handler.NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database, auditLogger, registerAccount)
 
 	// Provider management (admin only)
 	apiAuth.GET("/providers", settingsHandler.ListProviders)

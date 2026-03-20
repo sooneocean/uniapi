@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -206,9 +207,39 @@ func (g *Gemini) ChatCompletion(ctx context.Context, req *provider.ChatRequest) 
 }
 
 // ChatCompletionStream implements provider.Provider.
+// Fallback: calls the non-streaming endpoint and wraps the result as a single stream event.
 func (g *Gemini) ChatCompletionStream(ctx context.Context, req *provider.ChatRequest) (provider.Stream, error) {
-	return nil, fmt.Errorf("streaming not yet implemented")
+	resp, err := g.ChatCompletion(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return &singleEventStream{resp: resp, done: false}, nil
 }
+
+type singleEventStream struct {
+	resp *provider.ChatResponse
+	done bool
+}
+
+func (s *singleEventStream) Next() (*provider.StreamEvent, error) {
+	if s.done {
+		return nil, io.EOF
+	}
+	s.done = true
+	text := ""
+	for _, c := range s.resp.Content {
+		if c.Type == "text" {
+			text += c.Text
+		}
+	}
+	return &provider.StreamEvent{
+		Type:     "content_delta",
+		Content:  provider.ContentBlock{Type: "text", Text: text},
+		Response: s.resp,
+	}, nil
+}
+
+func (s *singleEventStream) Close() error { return nil }
 
 // ValidateCredential implements provider.Provider.
 func (g *Gemini) ValidateCredential(ctx context.Context, cred provider.Credential) error {
