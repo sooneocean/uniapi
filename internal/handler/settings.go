@@ -10,6 +10,7 @@ import (
 	"github.com/user/uniapi/internal/audit"
 	"github.com/user/uniapi/internal/auth"
 	"github.com/user/uniapi/internal/db"
+	"github.com/user/uniapi/internal/provider"
 	"github.com/user/uniapi/internal/repo"
 	"github.com/user/uniapi/internal/usage"
 )
@@ -153,6 +154,11 @@ func (h *SettingsHandler) DeleteProvider(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// GET /api/provider-templates
+func (h *SettingsHandler) ListTemplates(c *gin.Context) {
+	c.JSON(http.StatusOK, provider.Templates)
 }
 
 // ─── User management ──────────────────────────────────────────────────────────

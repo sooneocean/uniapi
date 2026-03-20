@@ -261,6 +261,7 @@ func main() {
 	apiAuth.GET("/providers", settingsHandler.ListProviders)
 	apiAuth.POST("/providers", settingsHandler.AddProvider)
 	apiAuth.DELETE("/providers/:id", settingsHandler.DeleteProvider)
+	apiAuth.GET("/provider-templates", settingsHandler.ListTemplates)
 
 	// User management (admin only)
 	apiAuth.GET("/users", settingsHandler.ListUsers)

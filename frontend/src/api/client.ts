@@ -88,6 +88,7 @@ export async function getMe(): Promise<{ id: string; username: string; role: str
 export async function getProviders() { return (await api.get('/api/providers')).data; }
 export async function addProvider(data: any) { return (await api.post('/api/providers', data)).data; }
 export async function deleteProvider(id: string) { await api.delete(`/api/providers/${id}`); }
+export async function getProviderTemplates() { return (await api.get('/api/provider-templates')).data; }
 
 // Users
 export async function getUsers() { return (await api.get('/api/users')).data; }
