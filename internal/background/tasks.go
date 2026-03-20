@@ -6,50 +6,62 @@ import (
 	"time"
 )
 
-type BackgroundTasks struct {
-    db     *sql.DB
-    stopCh chan struct{}
-    retentionDays int
+// OAuthRefresher is the interface for background OAuth token refresh operations.
+type OAuthRefresher interface {
+	RefreshExpiring() error
+	CleanupStates() error
 }
 
-func New(db *sql.DB, retentionDays int) *BackgroundTasks {
-    return &BackgroundTasks{
-        db:            db,
-        stopCh:        make(chan struct{}),
-        retentionDays: retentionDays,
-    }
+type BackgroundTasks struct {
+	db            *sql.DB
+	stopCh        chan struct{}
+	retentionDays int
+	oauthMgr      OAuthRefresher
+}
+
+func New(db *sql.DB, retentionDays int, oauthMgr OAuthRefresher) *BackgroundTasks {
+	return &BackgroundTasks{
+		db:            db,
+		stopCh:        make(chan struct{}),
+		retentionDays: retentionDays,
+		oauthMgr:      oauthMgr,
+	}
 }
 
 func (b *BackgroundTasks) Start() {
-    go b.run()
+	go b.run()
 }
 
 func (b *BackgroundTasks) Stop() {
-    close(b.stopCh)
+	close(b.stopCh)
 }
 
 func (b *BackgroundTasks) run() {
-    // Run cleanup immediately on start, then daily
-    b.cleanup()
-    ticker := time.NewTicker(24 * time.Hour)
-    defer ticker.Stop()
-    for {
-        select {
-        case <-ticker.C:
-            b.cleanup()
-        case <-b.stopCh:
-            return
-        }
-    }
+	// Run cleanup immediately on start, then daily
+	b.cleanup()
+	dailyTicker := time.NewTicker(24 * time.Hour)
+	refreshTicker := time.NewTicker(5 * time.Minute)
+	defer dailyTicker.Stop()
+	defer refreshTicker.Stop()
+	for {
+		select {
+		case <-dailyTicker.C:
+			b.cleanup()
+		case <-refreshTicker.C:
+			b.refreshTokens()
+		case <-b.stopCh:
+			return
+		}
+	}
 }
 
 func (b *BackgroundTasks) cleanup() {
-    if b.retentionDays <= 0 {
-        return // retention disabled
-    }
-    cutoff := time.Now().AddDate(0, 0, -b.retentionDays).Format("2006-01-02T15:04:05")
+	if b.retentionDays <= 0 {
+		return // retention disabled
+	}
+	cutoff := time.Now().AddDate(0, 0, -b.retentionDays).Format("2006-01-02T15:04:05")
 
-    // Delete old messages first (due to FK), then conversations
+	// Delete old messages first (due to FK), then conversations
 	result, err := b.db.Exec(`
         DELETE FROM messages WHERE conversation_id IN (
             SELECT id FROM conversations WHERE updated_at < ?
@@ -74,5 +86,17 @@ func (b *BackgroundTasks) cleanup() {
 			"messages", msgCount,
 			"retention_days", b.retentionDays,
 		)
+	}
+}
+
+func (b *BackgroundTasks) refreshTokens() {
+	if b.oauthMgr == nil {
+		return
+	}
+	if err := b.oauthMgr.RefreshExpiring(); err != nil {
+		slog.Error("background: token refresh failed", "error", err)
+	}
+	if err := b.oauthMgr.CleanupStates(); err != nil {
+		slog.Error("background: state cleanup failed", "error", err)
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/user/uniapi/internal/db"
 	"github.com/user/uniapi/internal/handler"
 	"github.com/user/uniapi/internal/logger"
+	"github.com/user/uniapi/internal/oauth"
 	"github.com/user/uniapi/internal/provider"
 	pAnthropic "github.com/user/uniapi/internal/provider/anthropic"
 	pGemini "github.com/user/uniapi/internal/provider/gemini"
@@ -100,8 +101,22 @@ func main() {
 	}
 	defer database.Close()
 
+	// Repos
+	userRepo := repo.NewUserRepo(database)
+	encKey, err := crypto.DeriveKeyWithInfo(cfg.Security.Secret, "uniapi-encryption")
+	if err != nil {
+		slog.Error("derive enc key", "error", err)
+		os.Exit(1)
+	}
+	accountRepo := repo.NewAccountRepo(database, encKey)
+	convoRepo := repo.NewConversationRepo(database)
+	recorder := usage.NewRecorder(database.DB)
+
+	// OAuth manager
+	oauthMgr := oauth.NewManager(database, accountRepo, encKey, cfg.OAuth.BaseURL, cfg.OAuth)
+
 	// Background tasks
-	bgTasks := background.New(database.DB, cfg.Storage.RetentionDays)
+	bgTasks := background.New(database.DB, cfg.Storage.RetentionDays, oauthMgr)
 	bgTasks.Start()
 	defer bgTasks.Stop()
 
@@ -114,7 +129,7 @@ func main() {
 		Strategy: cfg.Routing.Strategy, MaxRetries: cfg.Routing.MaxRetries, FailoverAttempts: cfg.Routing.FailoverAttempts,
 	})
 
-	// Register providers
+	// Register config-managed providers
 	for _, pc := range cfg.Providers {
 		for _, acc := range pc.Accounts {
 			var p provider.Provider
@@ -152,16 +167,30 @@ func main() {
 	}
 	jwtMgr := auth.NewJWTManager(jwtKey, 7*24*time.Hour)
 
-	// Repos
-	userRepo := repo.NewUserRepo(database)
-	encKey, err := crypto.DeriveKeyWithInfo(cfg.Security.Secret, "uniapi-encryption")
-	if err != nil {
-		slog.Error("derive enc key", "error", err)
-		os.Exit(1)
+	// registerAccount dynamically adds newly bound accounts to the live router
+	registerAccount := func(acc *repo.Account) {
+		accID := acc.ID
+		credFunc := func() (string, string) {
+			fresh, err := accountRepo.GetByID(accID)
+			if err != nil {
+				return "", "api_key"
+			}
+			return fresh.Credential, fresh.AuthType
+		}
+		provCfg := provider.ProviderConfig{Name: acc.Provider, Type: acc.Provider}
+		var p provider.Provider
+		switch acc.Provider {
+		case "openai":
+			p = pOpenai.NewOpenAI(provCfg, acc.Models, credFunc)
+		case "anthropic":
+			p = pAnthropic.NewAnthropic(provCfg, acc.Models, credFunc)
+		case "gemini":
+			p = pGemini.NewGemini(provCfg, acc.Models, credFunc)
+		default:
+			p = pOpenai.NewOpenAI(provCfg, acc.Models, credFunc) // openai_compatible
+		}
+		rtr.AddAccountWithOwner(acc.ID, p, acc.MaxConcurrent, acc.OwnerUserID)
 	}
-	accountRepo := repo.NewAccountRepo(database, encKey)
-	convoRepo := repo.NewConversationRepo(database)
-	recorder := usage.NewRecorder(database.DB)
 
 	// Gin
 	gin.SetMode(gin.ReleaseMode)
@@ -214,6 +243,23 @@ func main() {
 	// Usage
 	apiAuth.GET("/usage", settingsHandler.GetUsage)
 	apiAuth.GET("/usage/all", settingsHandler.GetAllUsage)
+
+	// OAuth routes
+	oauthHandler := handler.NewOAuthHandler(oauthMgr, rtr, registerAccount)
+	oauthGroup := engine.Group("/api/oauth")
+	oauthGroup.GET("/callback/:provider", oauthHandler.Callback) // NO auth — uses state token
+
+	oauthAuth := oauthGroup.Group("")
+	oauthAuth.Use(handler.JWTAuthMiddleware(jwtMgr))
+	oauthAuth.GET("/providers", oauthHandler.ListProviders)
+	oauthAuth.GET("/accounts", oauthHandler.ListAccounts)
+	oauthAuth.DELETE("/accounts/:id", oauthHandler.UnbindAccount)
+	oauthAuth.POST("/accounts/:id/reauth", oauthHandler.Reauth)
+
+	// Bind routes under /bind/:provider to avoid Gin wildcard conflicts
+	bindGroup := oauthAuth.Group("/bind/:provider")
+	bindGroup.GET("/authorize", oauthHandler.Authorize)
+	bindGroup.POST("/session-token", oauthHandler.BindSessionToken)
 
 	// API routes
 	apiHandler := handler.NewAPIHandler(rtr, recorder)

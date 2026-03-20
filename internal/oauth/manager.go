@@ -1,0 +1,245 @@
+package oauth
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"sync"
+	"time"
+
+	"github.com/user/uniapi/internal/config"
+	"github.com/user/uniapi/internal/db"
+	"github.com/user/uniapi/internal/repo"
+)
+
+// Manager handles OAuth and session token binding flows.
+type Manager struct {
+	providers   map[string]*BindingProvider
+	db          *db.Database
+	accountRepo *repo.AccountRepo
+	encKey      []byte
+	baseURL     string
+	oauthCfg    config.OAuthConfigs
+	refreshMu   sync.Map
+}
+
+// NewManager creates a new OAuth Manager, enabling OAuth for providers
+// where client credentials are configured.
+func NewManager(database *db.Database, accountRepo *repo.AccountRepo, encKey []byte, baseURL string, oauthCfg config.OAuthConfigs) *Manager {
+	providers := make(map[string]*BindingProvider)
+	for k, v := range defaultProviders {
+		p := *v // copy
+		switch k {
+		case "openai":
+			if oauthCfg.OpenAI != nil && oauthCfg.OpenAI.ClientID != "" {
+				p.SupportsOAuth = true
+			}
+		case "aliyun":
+			if oauthCfg.Qwen == nil || oauthCfg.Qwen.ClientID == "" {
+				p.SupportsOAuth = false
+			}
+		case "anthropic":
+			if oauthCfg.Claude != nil && oauthCfg.Claude.ClientID != "" {
+				p.SupportsOAuth = true
+			}
+		}
+		providers[k] = &p
+	}
+	return &Manager{
+		providers:   providers,
+		db:          database,
+		accountRepo: accountRepo,
+		encKey:      encKey,
+		baseURL:     baseURL,
+		oauthCfg:    oauthCfg,
+	}
+}
+
+// BaseURL returns the configured external base URL.
+func (m *Manager) BaseURL() string { return m.baseURL }
+
+// ListProviders returns all available binding providers.
+func (m *Manager) ListProviders() []*BindingProvider {
+	result := make([]*BindingProvider, 0, len(m.providers))
+	for _, p := range m.providers {
+		p := p // copy pointer for safety
+		result = append(result, p)
+	}
+	return result
+}
+
+// GetAccount retrieves an account by ID, verifying ownership.
+func (m *Manager) GetAccount(accountID, userID string) (*repo.Account, error) {
+	acc, err := m.accountRepo.GetByID(accountID)
+	if err != nil {
+		return nil, err
+	}
+	if acc.OwnerUserID != "" && acc.OwnerUserID != userID {
+		return nil, fmt.Errorf("not authorized")
+	}
+	return acc, nil
+}
+
+// AuthorizeURL generates an OAuth authorization URL and stores a one-time state token.
+func (m *Manager) AuthorizeURL(providerName, userID, sessionHash string, shared bool) (string, error) {
+	p, ok := m.providers[providerName]
+	if !ok {
+		return "", fmt.Errorf("unknown provider: %s", providerName)
+	}
+	if !p.SupportsOAuth {
+		return "", fmt.Errorf("provider %s does not support OAuth", providerName)
+	}
+
+	state := generateState()
+	_, err := m.db.DB.Exec(
+		"INSERT INTO oauth_states (state, provider, user_id, session_hash, shared) VALUES (?, ?, ?, ?, ?)",
+		state, providerName, userID, sessionHash, shared,
+	)
+	if err != nil {
+		return "", fmt.Errorf("store oauth state: %w", err)
+	}
+
+	// Get client_id for provider
+	clientID := ""
+	switch providerName {
+	case "openai":
+		if m.oauthCfg.OpenAI != nil {
+			clientID = m.oauthCfg.OpenAI.ClientID
+		}
+	case "aliyun":
+		if m.oauthCfg.Qwen != nil {
+			clientID = m.oauthCfg.Qwen.ClientID
+		}
+	case "anthropic":
+		if m.oauthCfg.Claude != nil {
+			clientID = m.oauthCfg.Claude.ClientID
+		}
+	}
+
+	redirectURI := fmt.Sprintf("%s/api/oauth/callback/%s", m.baseURL, providerName)
+	scopeStr := ""
+	for i, s := range p.Scopes {
+		if i > 0 {
+			scopeStr += "+"
+		}
+		scopeStr += s
+	}
+
+	url := fmt.Sprintf("%s?client_id=%s&redirect_uri=%s&response_type=code&scope=%s&state=%s",
+		p.AuthURL, clientID, redirectURI, scopeStr, state)
+	return url, nil
+}
+
+// HandleCallback validates state+session, exchanges code for token, and creates an account.
+func (m *Manager) HandleCallback(providerName, code, state, sessionHash string) (*repo.Account, error) {
+	// 1. Validate state exists
+	var storedProvider, storedUserID, storedSessionHash string
+	var shared bool
+	err := m.db.DB.QueryRow(
+		"SELECT provider, user_id, session_hash, shared FROM oauth_states WHERE state = ?",
+		state,
+	).Scan(&storedProvider, &storedUserID, &storedSessionHash, &shared)
+	if err != nil {
+		return nil, fmt.Errorf("invalid or expired state")
+	}
+
+	// 2. Verify provider matches
+	if storedProvider != providerName {
+		return nil, fmt.Errorf("state provider mismatch")
+	}
+
+	// 3. Verify session hash matches
+	if storedSessionHash != sessionHash {
+		return nil, fmt.Errorf("session mismatch")
+	}
+
+	// 4. Delete state (one-time use)
+	m.db.DB.Exec("DELETE FROM oauth_states WHERE state = ?", state)
+
+	// 5. Get provider config
+	p, ok := m.providers[providerName]
+	if !ok {
+		return nil, fmt.Errorf("unknown provider: %s", providerName)
+	}
+
+	// 6. Exchange code for token (simplified — real implementation would call TokenURL)
+	// For now, treat the code as the access token (placeholder for real OAuth exchange)
+	ownerUserID := storedUserID
+	if shared {
+		ownerUserID = ""
+	}
+
+	return m.accountRepo.CreateBound(
+		p.ProviderType,
+		fmt.Sprintf("%s (OAuth)", p.DisplayName),
+		"oauth",
+		code, // access token
+		"",   // refresh token (would come from real exchange)
+		time.Time{},
+		p.DefaultModels,
+		5,
+		ownerUserID,
+		false,
+	)
+}
+
+// BindSessionToken stores a user-provided session token as a new account.
+func (m *Manager) BindSessionToken(providerName, userID, token string, shared bool) (*repo.Account, error) {
+	p, ok := m.providers[providerName]
+	if !ok {
+		return nil, fmt.Errorf("unknown provider: %s", providerName)
+	}
+
+	ownerUserID := userID
+	if shared {
+		ownerUserID = ""
+	}
+
+	return m.accountRepo.CreateBound(
+		p.ProviderType,
+		fmt.Sprintf("%s (session)", p.DisplayName),
+		"session_token",
+		token,
+		"", // no refresh token for session tokens
+		time.Time{}, // no expiry
+		p.DefaultModels,
+		5,
+		ownerUserID,
+		false,
+	)
+}
+
+// ListAccounts returns accounts visible to the given user.
+func (m *Manager) ListAccounts(userID string) ([]repo.Account, error) {
+	return m.accountRepo.ListForUser(userID)
+}
+
+// Unbind removes an OAuth/session account after ownership verification.
+func (m *Manager) Unbind(accountID, userID, role string) error {
+	acc, err := m.accountRepo.GetByID(accountID)
+	if err != nil {
+		return err
+	}
+	if acc.AuthType == "api_key" {
+		return fmt.Errorf("cannot unbind API key accounts")
+	}
+	if acc.OwnerUserID != "" && acc.OwnerUserID != userID && role != "admin" {
+		return fmt.Errorf("not authorized")
+	}
+	return m.accountRepo.Delete(accountID)
+}
+
+// generateState creates a cryptographically random state token.
+func generateState() string {
+	b := make([]byte, 32)
+	io.ReadFull(rand.Reader, b)
+	return hex.EncodeToString(b)
+}
+
+// HashSession returns the SHA-256 hex hash of a JWT string.
+func HashSession(jwt string) string {
+	h := sha256.Sum256([]byte(jwt))
+	return hex.EncodeToString(h[:])
+}
