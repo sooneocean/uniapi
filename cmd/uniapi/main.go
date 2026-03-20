@@ -159,6 +159,40 @@ func main() {
 		}
 	}
 
+	// Load DB-managed accounts (API key + OAuth/session) into router
+	dbAccounts, err := accountRepo.ListAll()
+	if err != nil {
+		slog.Error("failed to load DB accounts", "error", err)
+	} else {
+		for _, acc := range dbAccounts {
+			if !acc.Enabled || acc.NeedsReauth || acc.ConfigManaged {
+				continue
+			}
+			accID := acc.ID
+			credFunc := func() (string, string) {
+				fresh, err := accountRepo.GetByID(accID)
+				if err != nil {
+					return "", "api_key"
+				}
+				return fresh.Credential, fresh.AuthType
+			}
+			provCfg := provider.ProviderConfig{Name: acc.Provider, Type: acc.Provider}
+			var p provider.Provider
+			switch acc.Provider {
+			case "openai":
+				p = pOpenai.NewOpenAI(provCfg, acc.Models, credFunc)
+			case "anthropic":
+				p = pAnthropic.NewAnthropic(provCfg, acc.Models, credFunc)
+			case "gemini":
+				p = pGemini.NewGemini(provCfg, acc.Models, credFunc)
+			default:
+				p = pOpenai.NewOpenAI(provCfg, acc.Models, credFunc) // openai_compatible
+			}
+			rtr.AddAccountWithOwner(acc.ID, p, acc.MaxConcurrent, acc.OwnerUserID)
+			slog.Info("loaded DB account", "id", acc.ID, "provider", acc.Provider)
+		}
+	}
+
 	// Auth
 	jwtKey, err := crypto.DeriveKeyWithInfo(cfg.Security.Secret, "uniapi-jwt-signing")
 	if err != nil {

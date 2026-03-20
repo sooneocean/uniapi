@@ -122,3 +122,24 @@ export async function saveMessage(
 // Usage
 export async function getUsage(range: string) { return (await api.get(`/api/usage?range=${range}`)).data; }
 export async function getAllUsage(range: string) { return (await api.get(`/api/usage/all?range=${range}`)).data; }
+
+// OAuth / Binding
+export async function getOAuthProviders() {
+  return (await api.get('/api/oauth/providers')).data;
+}
+
+export async function bindSessionToken(provider: string, token: string, shared: boolean) {
+  return (await api.post(`/api/oauth/bind/${provider}/session-token`, { token, shared })).data;
+}
+
+export async function getOAuthAccounts() {
+  return (await api.get('/api/oauth/accounts')).data;
+}
+
+export async function unbindAccount(id: string) {
+  await api.delete(`/api/oauth/accounts/${id}`);
+}
+
+export async function reauthAccount(id: string) {
+  return (await api.post(`/api/oauth/accounts/${id}/reauth`)).data;
+}

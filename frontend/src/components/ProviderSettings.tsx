@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { getProviders, addProvider, deleteProvider } from '../api/client';
+import { getProviders, addProvider, deleteProvider, getOAuthProviders, getOAuthAccounts, unbindAccount, reauthAccount } from '../api/client';
+import SessionTokenDialog from './SessionTokenDialog';
 
 interface Provider {
   id: string;
@@ -11,11 +12,33 @@ interface Provider {
   base_url?: string;
 }
 
+interface OAuthProvider {
+  name: string;
+  display_name: string;
+  supports_session_token: boolean;
+  supports_oauth: boolean;
+}
+
+interface OAuthAccount {
+  id: string;
+  provider: string;
+  label: string;
+  auth_type: string;
+  needs_reauth: boolean;
+  owner_user_id: string;
+}
+
 export default function ProviderSettings() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState('');
+
+  // OAuth/binding state
+  const [oauthProviders, setOAuthProviders] = useState<OAuthProvider[]>([]);
+  const [oauthAccounts, setOAuthAccounts] = useState<OAuthAccount[]>([]);
+  const [oauthLoading, setOAuthLoading] = useState(true);
+  const [sessionDialog, setSessionDialog] = useState<{ provider: string; displayName: string } | null>(null);
 
   const [formType, setFormType] = useState('anthropic');
   const [formLabel, setFormLabel] = useState('');
@@ -36,7 +59,39 @@ export default function ProviderSettings() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  const loadOAuth = async () => {
+    try {
+      setOAuthLoading(true);
+      const [provData, accData] = await Promise.all([getOAuthProviders(), getOAuthAccounts()]);
+      setOAuthProviders(Array.isArray(provData) ? provData : provData.providers ?? []);
+      setOAuthAccounts(Array.isArray(accData) ? accData : accData.accounts ?? []);
+    } catch {
+      // silently fail — OAuth may not be configured
+    } finally {
+      setOAuthLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); loadOAuth(); }, []);
+
+  const handleOAuthUnbind = async (id: string) => {
+    if (!confirm('Unbind this account?')) return;
+    try {
+      await unbindAccount(id);
+      await loadOAuth();
+    } catch {
+      setError('Failed to unbind account');
+    }
+  };
+
+  const handleOAuthReauth = async (id: string) => {
+    try {
+      await reauthAccount(id);
+      await loadOAuth();
+    } catch {
+      setError('Failed to reauth account');
+    }
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -77,8 +132,86 @@ export default function ProviderSettings() {
     }
   };
 
+  const sharedAccounts = oauthAccounts.filter((a) => a.owner_user_id === '');
+
   return (
     <div className="text-white">
+      {/* Account Binding section (admin only) */}
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold mb-3">Account Binding</h2>
+        {oauthLoading ? (
+          <p className="text-gray-400 text-sm">Loading...</p>
+        ) : oauthProviders.length === 0 ? (
+          <p className="text-gray-400 text-sm">No OAuth providers configured.</p>
+        ) : (
+          <div className="space-y-3 mb-4">
+            {oauthProviders.map((prov) => (
+              <div key={prov.name} className="bg-gray-700 rounded-lg p-4 flex items-center justify-between">
+                <span className="text-white font-medium">{prov.display_name}</span>
+                <div className="flex gap-2">
+                  {prov.supports_session_token && (
+                    <button
+                      onClick={() => setSessionDialog({ provider: prov.name, displayName: prov.display_name })}
+                      className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-500 transition-colors"
+                    >
+                      Paste Session Token
+                    </button>
+                  )}
+                  {prov.supports_oauth && (
+                    <button
+                      onClick={() => window.open(`/api/oauth/bind/${prov.name}/authorize?shared=true`, '_blank', 'width=600,height=700')}
+                      className="px-3 py-1.5 text-sm bg-green-700 text-white rounded hover:bg-green-600 transition-colors"
+                    >
+                      OAuth Connect
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {sharedAccounts.length > 0 && (
+          <div>
+            <h3 className="text-sm font-medium text-gray-300 mb-2">Bound Shared Accounts</h3>
+            <div className="space-y-2">
+              {sharedAccounts.map((acc) => (
+                <div key={acc.id} className="bg-gray-700 rounded-lg p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-white text-sm">{acc.label || acc.provider}</span>
+                    <span className="text-xs bg-gray-600 text-gray-300 px-2 py-0.5 rounded">{acc.provider}</span>
+                    <span className="text-xs bg-gray-600 text-gray-400 px-2 py-0.5 rounded">{acc.auth_type}</span>
+                    {acc.needs_reauth ? (
+                      <span className="text-xs bg-yellow-900 text-yellow-300 px-2 py-0.5 rounded">needs reauth</span>
+                    ) : (
+                      <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded">normal</span>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    {acc.needs_reauth && (
+                      <button
+                        onClick={() => handleOAuthReauth(acc.id)}
+                        className="px-2 py-1 text-xs bg-yellow-700 text-white rounded hover:bg-yellow-600 transition-colors"
+                      >
+                        Reauth
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleOAuthUnbind(acc.id)}
+                      className="px-2 py-1 text-xs bg-red-800 text-red-200 rounded hover:bg-red-700 transition-colors"
+                    >
+                      Unbind
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <hr className="border-gray-700 mb-6" />
+
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Providers</h2>
         <button
@@ -193,6 +326,16 @@ export default function ProviderSettings() {
             </div>
           ))}
         </div>
+      )}
+
+      {sessionDialog && (
+        <SessionTokenDialog
+          provider={sessionDialog.provider}
+          displayName={sessionDialog.displayName}
+          shared={true}
+          onClose={() => setSessionDialog(null)}
+          onSuccess={() => { setSessionDialog(null); loadOAuth(); }}
+        />
       )}
     </div>
   );

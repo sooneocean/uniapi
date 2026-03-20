@@ -5,7 +5,11 @@ import ChatArea from './ChatArea';
 import Settings from './Settings';
 import { getMe, logout, getConversations, createConversation } from '../api/client';
 
-export default function ChatLayout() {
+interface Props {
+  onShowAccounts?: () => void;
+}
+
+export default function ChatLayout({ onShowAccounts }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -60,6 +64,14 @@ export default function ChatLayout() {
       <div className="flex-1 overflow-hidden flex flex-col">
         {/* Header bar with gear and logout */}
         <div className="flex items-center justify-end gap-2 px-4 py-2 bg-gray-800 border-b border-gray-700">
+          <button
+            onClick={() => onShowAccounts?.()}
+            title="My Accounts"
+            className="text-gray-400 hover:text-white transition-colors text-lg px-2 py-1 rounded hover:bg-gray-700"
+            aria-label="My Accounts"
+          >
+            &#128100;
+          </button>
           <button
             onClick={() => setShowSettings(true)}
             title="Settings"
