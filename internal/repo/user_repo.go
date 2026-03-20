@@ -75,7 +75,7 @@ func (r *UserRepo) GetByID(id string) (*User, error) {
 
 func (r *UserRepo) List() ([]User, error) {
 	rows, err := r.db.DB.Query(
-		"SELECT id, username, password, role, created_at FROM users ORDER BY created_at",
+		"SELECT id, username, role, created_at FROM users ORDER BY created_at",
 	)
 	if err != nil {
 		return nil, err
@@ -84,7 +84,7 @@ func (r *UserRepo) List() ([]User, error) {
 	var users []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Password, &u.Role, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		users = append(users, u)

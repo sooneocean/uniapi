@@ -312,17 +312,22 @@ func main() {
 	// Health
 	engine.GET("/health", func(c *gin.Context) {
 		if err := database.DB.Ping(); err != nil {
-			c.JSON(503, gin.H{"status": "unhealthy", "db": "disconnected", "error": err.Error()})
+			slog.Error("health check failed", "error", err)
+			c.JSON(503, gin.H{"status": "unhealthy", "db": "disconnected"})
 			return
 		}
-		c.JSON(200, gin.H{
-			"status": "ok",
-			"db":     "connected",
-		})
+		c.JSON(200, gin.H{"status": "ok", "db": "connected"})
 	})
 
-	// Prometheus metrics
-	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	// Prometheus metrics (admin only)
+	apiAuth.GET("/metrics", func(c *gin.Context) {
+		role, _ := c.Get("role")
+		if r, ok := role.(string); !ok || r != "admin" {
+			c.JSON(403, gin.H{"error": "admin only"})
+			return
+		}
+		promhttp.Handler().ServeHTTP(c.Writer, c.Request)
+	})
 
 	// Audit log (admin only)
 	apiAuth.GET("/audit-log", settingsHandler.GetAuditLog)

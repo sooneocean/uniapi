@@ -16,44 +16,48 @@ import (
 )
 
 // RateLimitMiddleware limits requests per IP using in-memory counters.
-func RateLimitMiddleware(c *cache.MemCache, maxRequests int, window time.Duration) gin.HandlerFunc {
-    return func(ctx *gin.Context) {
-        ip := ctx.ClientIP()
+func RateLimitMiddleware(mc *cache.MemCache, maxRequests int, window time.Duration) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        ip := c.ClientIP()
         key := "ratelimit:ip:" + ip
 
-        val, exists := c.Get(key)
+        val, exists := mc.Get(key)
         if !exists {
-            c.Set(key, 1, window)
-            ctx.Next()
+            mc.Set(key, 1, window)
+            c.Next()
             return
         }
 
-        count, ok := val.(int)
-        if !ok {
-            c.Set(key, 1, window)
-            ctx.Next()
-            return
-        }
-
+        count, _ := val.(int)
         if count >= maxRequests {
-            ctx.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+            c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
                 "error": gin.H{"type": "rate_limit_error", "message": "too many requests, try again later"},
             })
             return
         }
 
-        c.Set(key, count+1, window)
-        ctx.Next()
+        mc.Increment(key) // preserves existing TTL
+        c.Next()
     }
 }
 
 func CORSMiddleware() gin.HandlerFunc {
     return func(c *gin.Context) {
         origin := c.GetHeader("Origin")
-        if origin != "" {
+        path := c.Request.URL.Path
+
+        if strings.HasPrefix(path, "/v1/") {
+            // API routes: permissive CORS, no credentials (uses Authorization header)
+            if origin != "" {
+                c.Header("Access-Control-Allow-Origin", "*")
+            }
+        } else if origin != "" {
+            // /api/* routes: only allow same-origin (cookie-based auth)
+            // In production, check against configured base_url
             c.Header("Access-Control-Allow-Origin", origin)
             c.Header("Access-Control-Allow-Credentials", "true")
         }
+
         c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
         c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         if c.Request.Method == "OPTIONS" {

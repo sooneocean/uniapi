@@ -45,6 +45,24 @@ func (c *MemCache) Get(key string) (interface{}, bool) {
     return e.value, true
 }
 
+// Increment atomically increments a counter without resetting its TTL.
+// Returns the new count. If key doesn't exist, returns 0.
+func (c *MemCache) Increment(key string) int {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    e, ok := c.items[key]
+    if !ok || time.Now().After(e.expireAt) {
+        return 0
+    }
+    count, ok := e.value.(int)
+    if !ok {
+        return 0
+    }
+    count++
+    c.items[key] = entry{value: count, expireAt: e.expireAt}
+    return count
+}
+
 func (c *MemCache) Delete(key string) {
     c.mu.Lock()
     delete(c.items, key)
