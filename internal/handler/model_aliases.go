@@ -6,14 +6,20 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sooneocean/uniapi/internal/cache"
 )
 
 type ModelAliasHandler struct {
-	db *sql.DB
+	db    *sql.DB
+	cache *cache.MemCache
 }
 
 func NewModelAliasHandler(db *sql.DB) *ModelAliasHandler {
 	return &ModelAliasHandler{db: db}
+}
+
+func NewModelAliasHandlerWithCache(db *sql.DB, mc *cache.MemCache) *ModelAliasHandler {
+	return &ModelAliasHandler{db: db, cache: mc}
 }
 
 type modelAlias struct {
@@ -94,6 +100,9 @@ func (h *ModelAliasHandler) CreateModelAlias(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		if h.cache != nil {
+			h.cache.Delete("alias:" + req.Alias)
+		}
 		c.JSON(http.StatusOK, modelAlias{Alias: req.Alias, ModelID: req.ModelID, CreatedAt: now})
 	} else {
 		_, err := h.db.ExecContext(c.Request.Context(),
@@ -103,6 +112,9 @@ func (h *ModelAliasHandler) CreateModelAlias(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
+		if h.cache != nil {
+			h.cache.Delete("alias:" + req.Alias)
 		}
 		c.JSON(http.StatusOK, modelAlias{Alias: req.Alias, ModelID: req.ModelID, UserID: &userID, CreatedAt: now})
 	}
@@ -149,6 +161,9 @@ func (h *ModelAliasHandler) DeleteModelAlias(c *gin.Context) {
 	if n == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "alias not found"})
 		return
+	}
+	if h.cache != nil {
+		h.cache.Delete("alias:" + alias)
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

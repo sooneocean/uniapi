@@ -110,7 +110,7 @@ func JWTAuthMiddleware(jwtMgr *auth.JWTManager) gin.HandlerFunc {
 	}
 }
 
-func APIKeyAuthMiddleware(db *sql.DB, jwtMgr *auth.JWTManager) gin.HandlerFunc {
+func APIKeyAuthMiddleware(db *sql.DB, jwtMgr *auth.JWTManager, mc *cache.MemCache) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := ExtractBearerToken(c)
 		if token == "" {
@@ -122,6 +122,17 @@ func APIKeyAuthMiddleware(db *sql.DB, jwtMgr *auth.JWTManager) gin.HandlerFunc {
 		}
 		if strings.HasPrefix(token, "uniapi-sk-") {
 			hash := auth.HashAPIKey(token)
+			cacheKey := "apikey:" + hash
+
+			// Check cache first
+			if cached, ok := mc.Get(cacheKey); ok {
+				if uid, ok := cached.(string); ok {
+					c.Set("user_id", uid)
+					c.Next()
+					return
+				}
+			}
+
 			var userID string
 			var expiresAt sql.NullTime
 			err := db.QueryRow("SELECT user_id, expires_at FROM api_keys WHERE key_hash = ?", hash).Scan(&userID, &expiresAt)
@@ -133,6 +144,9 @@ func APIKeyAuthMiddleware(db *sql.DB, jwtMgr *auth.JWTManager) gin.HandlerFunc {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "authentication_error", "message": "API key expired"}})
 				return
 			}
+
+			// Cache for 10 minutes
+			mc.Set(cacheKey, userID, 10*time.Minute)
 			c.Set("user_id", userID)
 			c.Next()
 			return

@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/sooneocean/uniapi/internal/cache"
 	"github.com/sooneocean/uniapi/internal/metrics"
 	"github.com/sooneocean/uniapi/internal/provider"
 	"github.com/sooneocean/uniapi/internal/router"
@@ -23,6 +24,7 @@ type APIHandler struct {
 	recorder   *usage.Recorder
 	webhookMgr *webhook.Manager
 	respCache  *ResponseCache
+	aliasCache *cache.MemCache
 	db         *sql.DB
 }
 
@@ -32,6 +34,10 @@ func NewAPIHandler(r *router.Router, rec *usage.Recorder) *APIHandler {
 
 func NewAPIHandlerFull(r *router.Router, rec *usage.Recorder, webhookMgr *webhook.Manager, respCache *ResponseCache, db *sql.DB) *APIHandler {
 	return &APIHandler{router: r, recorder: rec, webhookMgr: webhookMgr, respCache: respCache, db: db}
+}
+
+func NewAPIHandlerWithCache(r *router.Router, rec *usage.Recorder, webhookMgr *webhook.Manager, respCache *ResponseCache, db *sql.DB, mc *cache.MemCache) *APIHandler {
+	return &APIHandler{router: r, recorder: rec, webhookMgr: webhookMgr, respCache: respCache, db: db, aliasCache: mc}
 }
 
 type chatCompletionRequest struct {
@@ -99,13 +105,34 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 
 	// Resolve model alias
 	if h.db != nil {
-		var resolvedModel string
-		err := h.db.QueryRow(
-			"SELECT model_id FROM model_aliases WHERE alias = ? AND (user_id IS NULL OR user_id = ?) ORDER BY user_id DESC LIMIT 1",
-			chatReq.Model, userID,
-		).Scan(&resolvedModel)
-		if err == nil {
-			chatReq.Model = resolvedModel
+		aliasCacheKey := "alias:" + chatReq.Model
+		resolved := false
+		if h.aliasCache != nil {
+			if cached, ok := h.aliasCache.Get(aliasCacheKey); ok {
+				if resolvedModel, ok := cached.(string); ok && resolvedModel != "" {
+					chatReq.Model = resolvedModel
+					resolved = true
+				} else {
+					// cached miss — skip DB lookup
+					resolved = true
+				}
+			}
+		}
+		if !resolved {
+			var resolvedModel string
+			err := h.db.QueryRow(
+				"SELECT model_id FROM model_aliases WHERE alias = ? AND (user_id IS NULL OR user_id = ?) ORDER BY user_id DESC LIMIT 1",
+				chatReq.Model, userID,
+			).Scan(&resolvedModel)
+			if err == nil {
+				chatReq.Model = resolvedModel
+				if h.aliasCache != nil {
+					h.aliasCache.Set(aliasCacheKey, resolvedModel, 5*time.Minute)
+				}
+			} else if h.aliasCache != nil {
+				// Cache the miss to avoid repeated DB queries for real model names
+				h.aliasCache.Set(aliasCacheKey, "", 5*time.Minute)
+			}
 		}
 	}
 
@@ -218,6 +245,8 @@ func (h *APIHandler) handleStream(c *gin.Context, req *provider.ChatRequest) {
 
 	ctx := c.Request.Context()
 	w := c.Writer
+	encoder := json.NewEncoder(w) // reuse encoder across chunks — eliminates per-chunk allocation
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -235,7 +264,7 @@ func (h *APIHandler) handleStream(c *gin.Context, req *provider.ChatRequest) {
 			break
 		}
 		if event.Type == "done" {
-			fmt.Fprintf(w, "data: [DONE]\n\n")
+			fmt.Fprint(w, "data: [DONE]\n\n")
 			w.Flush()
 			if event.Response != nil {
 				tokensIn = event.Response.TokensIn
@@ -244,21 +273,22 @@ func (h *APIHandler) handleStream(c *gin.Context, req *provider.ChatRequest) {
 			break
 		}
 		if event.Type == "content_delta" {
-			chunk := gin.H{
+			chunk := map[string]interface{}{
 				"id":      id,
 				"object":  "chat.completion.chunk",
 				"created": created,
 				"model":   model,
-				"choices": []gin.H{
+				"choices": []map[string]interface{}{
 					{
 						"index":         0,
-						"delta":         gin.H{"content": event.Content.Text},
+						"delta":         map[string]interface{}{"content": event.Content.Text},
 						"finish_reason": nil,
 					},
 				},
 			}
-			b, _ := json.Marshal(chunk)
-			fmt.Fprintf(w, "data: %s\n\n", b)
+			fmt.Fprint(w, "data: ")
+			encoder.Encode(chunk) // writes JSON + newline
+			fmt.Fprint(w, "\n")
 			w.Flush()
 		}
 	}

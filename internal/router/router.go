@@ -27,15 +27,26 @@ type account struct {
 }
 
 type Router struct {
-    mu       sync.RWMutex
-    accounts []*account
-    cache    *cache.MemCache
-    config   Config
-    rrIndex  uint64
+    mu         sync.RWMutex
+    accounts   []*account
+    modelIndex map[string][]*account // modelID → accounts that serve it
+    cache      *cache.MemCache
+    config     Config
+    rrIndex    uint64
 }
 
 func New(c *cache.MemCache, cfg Config) *Router {
-    return &Router{cache: c, config: cfg}
+    return &Router{cache: c, config: cfg, modelIndex: make(map[string][]*account)}
+}
+
+// rebuildIndex rebuilds the model→accounts index. Must be called with write lock held.
+func (r *Router) rebuildIndex() {
+    r.modelIndex = make(map[string][]*account)
+    for _, acc := range r.accounts {
+        for _, m := range acc.provider.Models() {
+            r.modelIndex[m.ID] = append(r.modelIndex[m.ID], acc)
+        }
+    }
 }
 
 func (r *Router) AddAccount(id string, p provider.Provider, maxConcurrent int) {
@@ -47,6 +58,7 @@ func (r *Router) AddAccountWithOwner(id string, p provider.Provider, maxConcurre
     r.accounts = append(r.accounts, &account{
         id: id, provider: p, maxConcurrent: maxConcurrent, ownerUserID: ownerUserID,
     })
+    r.rebuildIndex()
     r.mu.Unlock()
 }
 
@@ -77,8 +89,14 @@ func (r *Router) Route(ctx context.Context, req *provider.ChatRequest, userID ..
 func (r *Router) findAccounts(model, providerName, userID string) []*account {
     r.mu.RLock()
     defer r.mu.RUnlock()
+
+    candidates, ok := r.modelIndex[model]
+    if !ok {
+        return nil
+    }
+
     var result []*account
-    for _, acc := range r.accounts {
+    for _, acc := range candidates {
         // Skip private accounts not owned by this user
         if acc.ownerUserID != "" && acc.ownerUserID != userID {
             continue
@@ -87,15 +105,12 @@ func (r *Router) findAccounts(model, providerName, userID string) []*account {
         if acc.needsReauth {
             continue
         }
-        if providerName != "" && acc.provider.Name() != providerName { continue }
-        for _, m := range acc.provider.Models() {
-            if m.ID == model {
-                key := fmt.Sprintf("ratelimit:%s:%s", acc.id, model)
-                if _, limited := r.cache.Get(key); !limited {
-                    result = append(result, acc)
-                }
-                break
-            }
+        if providerName != "" && acc.provider.Name() != providerName {
+            continue
+        }
+        key := "ratelimit:" + acc.id + ":" + model // pre-format string
+        if _, limited := r.cache.Get(key); !limited {
+            result = append(result, acc)
         }
     }
     return result

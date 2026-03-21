@@ -172,12 +172,21 @@ func main() {
 				continue
 			}
 			accID := acc.ID
+			cachedCred := acc.Credential
+			cachedAuthType := acc.AuthType
+			credCacheTime := time.Now()
 			credFunc := func() (string, string) {
-				fresh, err := accountRepo.GetByID(accID)
-				if err != nil {
-					return "", "api_key"
+				// Refresh every 5 minutes
+				if time.Since(credCacheTime) > 5*time.Minute {
+					fresh, err := accountRepo.GetByID(accID)
+					if err != nil {
+						return cachedCred, cachedAuthType
+					}
+					cachedCred = fresh.Credential
+					cachedAuthType = fresh.AuthType
+					credCacheTime = time.Now()
 				}
-				return fresh.Credential, fresh.AuthType
+				return cachedCred, cachedAuthType
 			}
 			provCfg := provider.ProviderConfig{Name: acc.Provider, Type: acc.Provider}
 			var p provider.Provider
@@ -214,12 +223,21 @@ func main() {
 	// registerAccount dynamically adds newly bound accounts to the live router
 	registerAccount := func(acc *repo.Account) {
 		accID := acc.ID
+		cachedCred := acc.Credential
+		cachedAuthType := acc.AuthType
+		credCacheTime := time.Now()
 		credFunc := func() (string, string) {
-			fresh, err := accountRepo.GetByID(accID)
-			if err != nil {
-				return "", "api_key"
+			// Refresh every 5 minutes
+			if time.Since(credCacheTime) > 5*time.Minute {
+				fresh, err := accountRepo.GetByID(accID)
+				if err != nil {
+					return cachedCred, cachedAuthType
+				}
+				cachedCred = fresh.Credential
+				cachedAuthType = fresh.AuthType
+				credCacheTime = time.Now()
 			}
-			return fresh.Credential, fresh.AuthType
+			return cachedCred, cachedAuthType
 		}
 		provCfg := provider.ProviderConfig{Name: acc.Provider, Type: acc.Provider}
 		var p provider.Provider
@@ -335,15 +353,15 @@ func main() {
 	bindGroup.POST("/session-token", oauthHandler.BindSessionToken)
 
 	// Model alias handler
-	modelAliasHandler := handler.NewModelAliasHandler(database.DB)
+	modelAliasHandler := handler.NewModelAliasHandlerWithCache(database.DB, memCache)
 	apiAuth.GET("/model-aliases", modelAliasHandler.ListModelAliases)
 	apiAuth.POST("/model-aliases", modelAliasHandler.CreateModelAlias)
 	apiAuth.DELETE("/model-aliases/:alias", modelAliasHandler.DeleteModelAlias)
 
 	// API routes
-	apiHandler := handler.NewAPIHandlerFull(rtr, recorder, webhookMgr, respCache, database.DB)
+	apiHandler := handler.NewAPIHandlerWithCache(rtr, recorder, webhookMgr, respCache, database.DB, memCache)
 	v1 := engine.Group("/v1")
-	v1.Use(handler.APIKeyAuthMiddleware(database.DB, jwtMgr))
+	v1.Use(handler.APIKeyAuthMiddleware(database.DB, jwtMgr, memCache))
 	apiLimiter := handler.RateLimitMiddleware(memCache, 60, 1*time.Minute) // 60 req/min per IP
 	v1.Use(apiLimiter)
 	v1.POST("/chat/completions", apiHandler.ChatCompletions)

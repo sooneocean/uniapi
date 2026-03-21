@@ -68,7 +68,7 @@ func setupIntegration(t *testing.T) (*gin.Engine, *db.Database, *auth.JWTManager
 	// API routes
 	apiHandler := NewAPIHandler(rtr, recorder)
 	v1 := engine.Group("/v1")
-	v1.Use(APIKeyAuthMiddleware(database.DB, jwtMgr))
+	v1.Use(APIKeyAuthMiddleware(database.DB, jwtMgr, memCache))
 	v1.POST("/chat/completions", apiHandler.ChatCompletions)
 	v1.GET("/models", apiHandler.ListModels)
 
