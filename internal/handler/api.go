@@ -18,6 +18,7 @@ import (
 	"github.com/sooneocean/uniapi/internal/metrics"
 	"github.com/sooneocean/uniapi/internal/plugin"
 	"github.com/sooneocean/uniapi/internal/provider"
+	"github.com/sooneocean/uniapi/internal/quota"
 	"github.com/sooneocean/uniapi/internal/rag"
 	"github.com/sooneocean/uniapi/internal/router"
 	"github.com/sooneocean/uniapi/internal/usage"
@@ -25,19 +26,25 @@ import (
 )
 
 type APIHandler struct {
-	router     *router.Router
-	recorder   *usage.Recorder
-	webhookMgr *webhook.Manager
-	respCache  *ResponseCache
-	aliasCache *cache.MemCache
-	db         *sql.DB
-	ragMgr     *rag.Manager
-	pluginMgr  *plugin.Manager
-	memMgr     *memory.Manager
+	router      *router.Router
+	recorder    *usage.Recorder
+	webhookMgr  *webhook.Manager
+	respCache   *ResponseCache
+	aliasCache  *cache.MemCache
+	db          *sql.DB
+	ragMgr      *rag.Manager
+	pluginMgr   *plugin.Manager
+	memMgr      *memory.Manager
+	quotaEngine *quota.Engine
 }
 
 func (h *APIHandler) SetRAGManager(m *rag.Manager) {
 	h.ragMgr = m
+}
+
+// SetQuotaEngine wires the quota engine into the chat handler.
+func (h *APIHandler) SetQuotaEngine(e *quota.Engine) {
+	h.quotaEngine = e
 }
 
 func (h *APIHandler) SetPluginManager(m *plugin.Manager) {
@@ -235,7 +242,16 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 
 	// Quota check
 	if userID != "" {
-		if err := h.checkQuota(userID); err != nil {
+		if h.quotaEngine != nil {
+			result := h.quotaEngine.Check(userID)
+			if !result.Allowed {
+				c.JSON(429, gin.H{"error": gin.H{"type": "quota_exceeded", "message": result.Message}})
+				return
+			}
+			if result.Warning {
+				c.Header("X-Quota-Warning", result.Message)
+			}
+		} else if err := h.checkQuota(userID); err != nil {
 			c.JSON(429, gin.H{"error": gin.H{"type": "quota_exceeded", "message": err.Error()}})
 			return
 		}

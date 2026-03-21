@@ -1,22 +1,25 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Conversation } from '../types';
 import Sidebar from './Sidebar';
 import ChatArea from './ChatArea';
-import Settings from './Settings';
-import ThemeToggle from './ThemeToggle';
-import LanguageToggle from './LanguageToggle';
 import ShortcutHelp from './ShortcutHelp';
-import CompareMode from './CompareMode';
-import ChatRooms from './ChatRooms';
+import HeaderControls from './HeaderControls';
 import { getMe, logout, getConversations, createConversation } from '../api/client';
-import { useTheme } from '../hooks/useTheme';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+
+const Settings = lazy(() => import('./Settings'));
+const ChatRooms = lazy(() => import('./ChatRooms'));
+const CompareMode = lazy(() => import('./CompareMode'));
 
 interface Props {
   onShowAccounts?: () => void;
   onShowPlayground?: () => void;
 }
+
+const ModalLoading = () => (
+  <div className="flex items-center justify-center h-full text-gray-400">Loading...</div>
+);
 
 export default function ChatLayout({ onShowAccounts, onShowPlayground }: Props) {
   const { t } = useTranslation();
@@ -28,7 +31,6 @@ export default function ChatLayout({ onShowAccounts, onShowPlayground }: Props) 
   const [showRooms, setShowRooms] = useState(false);
   const [userRole, setUserRole] = useState<string>('member');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { theme, toggle: toggleTheme } = useTheme();
 
   const focusSearchFnRef = useRef<(() => void) | null>(null);
   const focusInputFnRef = useRef<(() => void) | null>(null);
@@ -153,8 +155,7 @@ export default function ChatLayout({ onShowAccounts, onShowPlayground }: Props) 
             >
               &#9878; Compare
             </button>
-            <LanguageToggle />
-            <ThemeToggle theme={theme} onToggle={toggleTheme} />
+            <HeaderControls />
             <button
               onClick={() => onShowAccounts?.()}
               title="My Accounts"
@@ -190,17 +191,21 @@ export default function ChatLayout({ onShowAccounts, onShowPlayground }: Props) 
         </div>
       </div>
 
-      {showSettings && (
-        <Settings onClose={() => setShowSettings(false)} userRole={userRole} />
-      )}
+      <Suspense fallback={null}>
+        {showSettings && (
+          <Settings onClose={() => setShowSettings(false)} userRole={userRole} />
+        )}
+      </Suspense>
 
       {showShortcuts && (
         <ShortcutHelp onClose={() => setShowShortcuts(false)} />
       )}
 
-      {showCompare && (
-        <CompareMode onClose={() => setShowCompare(false)} />
-      )}
+      <Suspense fallback={null}>
+        {showCompare && (
+          <CompareMode onClose={() => setShowCompare(false)} />
+        )}
+      </Suspense>
 
       {showRooms && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -210,7 +215,9 @@ export default function ChatLayout({ onShowAccounts, onShowPlayground }: Props) 
               <button onClick={() => setShowRooms(false)} className="text-gray-400 hover:text-white transition-colors text-xl leading-none">&times;</button>
             </div>
             <div className="flex-1 overflow-hidden">
-              <ChatRooms />
+              <Suspense fallback={<ModalLoading />}>
+                <ChatRooms />
+              </Suspense>
             </div>
           </div>
         </div>

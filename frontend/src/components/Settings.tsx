@@ -1,18 +1,19 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import ProviderSettings from './ProviderSettings';
 import UserSettings from './UserSettings';
 import UsageDashboard from './UsageDashboard';
-import AnalyticsDashboard from './AnalyticsDashboard';
 import APIKeySettings from './APIKeySettings';
-import AdminDashboard from './AdminDashboard';
-import ModelAliases from './ModelAliases';
-import KnowledgeBase from './KnowledgeBase';
-import PluginManager from './PluginManager';
-import PromptTemplates from './PromptTemplates';
-import DataSettings from './DataSettings';
-import WorkflowBuilder from './WorkflowBuilder';
-import ThemeEditor from './ThemeEditor';
+
+const AdminDashboard = lazy(() => import('./AdminDashboard'));
+const AnalyticsDashboard = lazy(() => import('./AnalyticsDashboard'));
+const WorkflowBuilder = lazy(() => import('./WorkflowBuilder'));
+const ThemeEditor = lazy(() => import('./ThemeEditor'));
+const PluginManager = lazy(() => import('./PluginManager'));
+const KnowledgeBase = lazy(() => import('./KnowledgeBase'));
+const PromptTemplates = lazy(() => import('./PromptTemplates'));
+const DataSettings = lazy(() => import('./DataSettings'));
+const ModelAliases = lazy(() => import('./ModelAliases'));
 
 type Tab = 'dashboard' | 'providers' | 'users' | 'usage' | 'analytics' | 'apikeys' | 'aliases' | 'knowledge' | 'plugins' | 'templates' | 'workflows' | 'themes' | 'data';
 
@@ -20,6 +21,10 @@ interface SettingsProps {
   onClose: () => void;
   userRole?: string;
 }
+
+const TabLoading = () => (
+  <div className="flex items-center justify-center py-12 text-gray-400">Loading...</div>
+);
 
 export default function Settings({ onClose, userRole }: SettingsProps) {
   const { t } = useTranslation();
@@ -77,19 +82,21 @@ export default function Settings({ onClose, userRole }: SettingsProps) {
 
         {/* Tab content */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
-          {activeTab === 'dashboard' && userRole === 'admin' && <AdminDashboard />}
-          {activeTab === 'providers' && <ProviderSettings />}
-          {activeTab === 'users' && userRole === 'admin' && <UserSettings />}
-          {activeTab === 'usage' && <UsageDashboard />}
-          {activeTab === 'analytics' && <AnalyticsDashboard />}
-          {activeTab === 'apikeys' && <APIKeySettings />}
-          {activeTab === 'aliases' && <ModelAliases />}
-          {activeTab === 'knowledge' && <KnowledgeBase />}
-          {activeTab === 'plugins' && <PluginManager />}
-          {activeTab === 'templates' && <PromptTemplates />}
-          {activeTab === 'workflows' && <WorkflowBuilder />}
-          {activeTab === 'themes' && <ThemeEditor />}
-          {activeTab === 'data' && <DataSettings />}
+          <Suspense fallback={<TabLoading />}>
+            {activeTab === 'dashboard' && userRole === 'admin' && <AdminDashboard />}
+            {activeTab === 'providers' && <ProviderSettings />}
+            {activeTab === 'users' && userRole === 'admin' && <UserSettings />}
+            {activeTab === 'usage' && <UsageDashboard />}
+            {activeTab === 'analytics' && <AnalyticsDashboard />}
+            {activeTab === 'apikeys' && <APIKeySettings />}
+            {activeTab === 'aliases' && <ModelAliases />}
+            {activeTab === 'knowledge' && <KnowledgeBase />}
+            {activeTab === 'plugins' && <PluginManager />}
+            {activeTab === 'templates' && <PromptTemplates />}
+            {activeTab === 'workflows' && <WorkflowBuilder />}
+            {activeTab === 'themes' && <ThemeEditor />}
+            {activeTab === 'data' && <DataSettings />}
+          </Suspense>
         </div>
       </div>
     </div>

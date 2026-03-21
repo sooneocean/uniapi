@@ -27,6 +27,7 @@ import (
 	"github.com/sooneocean/uniapi/internal/oauth"
 	"github.com/sooneocean/uniapi/internal/plugin"
 	"github.com/sooneocean/uniapi/internal/provider"
+	"github.com/sooneocean/uniapi/internal/quota"
 	"github.com/sooneocean/uniapi/internal/rag"
 	"github.com/sooneocean/uniapi/internal/repo"
 	"github.com/sooneocean/uniapi/internal/router"
@@ -305,6 +306,13 @@ func main() {
 	apiHandler := handler.NewAPIHandlerWithCache(rtr, recorder, webhookMgr, respCache, database.DB, memCache)
 	apiHandler.SetRAGManager(ragMgr)
 	apiHandler.SetPluginManager(pluginMgr)
+	quotaEngine := quota.NewEngine(database.DB, quota.Config{
+		DailyLimitUSD:   cfg.QuotaDefaults.DailyLimitUSD,
+		MonthlyLimitUSD: cfg.QuotaDefaults.MonthlyLimitUSD,
+		WarnThreshold:   0.8,
+	})
+	apiHandler.SetQuotaEngine(quotaEngine)
+	quotaHandler := handler.NewQuotaHandler(quotaEngine)
 
 	// Register all routes
 	registerRoutes(engine, cfg, database, jwtMgr, memCache,
@@ -312,6 +320,7 @@ func main() {
 		usageHandler, adminHandler, oauthHandler, modelAliasHandler,
 		knowledgeHandler, pluginHandler, templatesHandler,
 		roomsHandler, workflowsHandler, themesHandler, apiHandler,
+		quotaHandler,
 	)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -368,6 +377,7 @@ func registerRoutes(
 	workflowsHandler *handler.WorkflowsHandler,
 	themesHandler *handler.ThemesHandler,
 	apiHandler *handler.APIHandler,
+	quotaHandler *handler.QuotaHandler,
 ) {
 	loginLimiter := handler.RateLimitMiddleware(memCache, 10, 1*time.Minute) // 10 attempts per minute
 
@@ -426,6 +436,10 @@ func registerRoutes(
 	apiAuth.GET("/usage", usageHandler.GetUsage)
 	apiAuth.GET("/usage/all", usageHandler.GetAllUsage)
 	apiAuth.GET("/usage/analytics", usageHandler.UsageAnalytics)
+
+	// Quota
+	apiAuth.GET("/quota", quotaHandler.GetQuota)
+	apiAuth.PUT("/admin/users/:id/quota", quotaHandler.SetUserQuota)
 
 	// OAuth routes
 	oauthGroup := engine.Group("/api/oauth")

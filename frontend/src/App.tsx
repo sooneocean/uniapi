@@ -1,11 +1,16 @@
-import { useState, useEffect } from 'react';
-import ChatLayout from './components/ChatLayout';
-import SetupWizard from './components/SetupWizard';
-import LoginPage from './components/LoginPage';
-import MyAccounts from './components/MyAccounts';
-import SharedView from './components/SharedView';
-import APIPlayground from './components/APIPlayground';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import { getStatus } from './api/client';
+import './i18n';
+
+// Eager load (small, always needed)
+import LoginPage from './components/LoginPage';
+import SetupWizard from './components/SetupWizard';
+
+// Lazy load (heavy, conditionally needed)
+const ChatLayout = lazy(() => import('./components/ChatLayout'));
+const MyAccounts = lazy(() => import('./components/MyAccounts'));
+const APIPlayground = lazy(() => import('./components/APIPlayground'));
+const SharedView = lazy(() => import('./components/SharedView'));
 
 function getSharedToken(): string | null {
   const path = window.location.pathname;
@@ -13,12 +18,22 @@ function getSharedToken(): string | null {
   return match ? match[1] : null;
 }
 
+const Loading = () => (
+  <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
+    Loading...
+  </div>
+);
+
 function App() {
   const sharedToken = getSharedToken();
 
   // If this is a shared conversation link, render read-only view immediately
   if (sharedToken) {
-    return <SharedView token={sharedToken} />;
+    return (
+      <Suspense fallback={<Loading />}>
+        <SharedView token={sharedToken} />
+      </Suspense>
+    );
   }
 
   const [state, setState] = useState<'loading' | 'setup' | 'login' | 'chat'>('loading');
@@ -32,16 +47,23 @@ function App() {
     }).catch(() => setState('login'));
   }, []);
 
-  if (state === 'loading') return <div className="flex items-center justify-center h-screen bg-gray-900 text-white">Loading...</div>;
+  if (state === 'loading') return <Loading />;
   if (state === 'setup') return <SetupWizard onComplete={() => setState('chat')} />;
   if (state === 'login') return <LoginPage onLogin={() => setState('chat')} />;
-  if (state === 'chat' && page === 'accounts') {
-    return <MyAccounts onBack={() => setPage('chat')} />;
-  }
-  if (state === 'chat' && page === 'playground') {
-    return <APIPlayground onBack={() => setPage('chat')} />;
-  }
-  return <ChatLayout onShowAccounts={() => setPage('accounts')} onShowPlayground={() => setPage('playground')} />;
+
+  return (
+    <Suspense fallback={<Loading />}>
+      {state === 'chat' && page === 'accounts' && (
+        <MyAccounts onBack={() => setPage('chat')} />
+      )}
+      {state === 'chat' && page === 'playground' && (
+        <APIPlayground onBack={() => setPage('chat')} />
+      )}
+      {state === 'chat' && page === 'chat' && (
+        <ChatLayout onShowAccounts={() => setPage('accounts')} onShowPlayground={() => setPage('playground')} />
+      )}
+    </Suspense>
+  );
 }
 
 export default App;

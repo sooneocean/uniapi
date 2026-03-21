@@ -63,17 +63,25 @@ type CacheConfig struct {
 	TTL     int  `mapstructure:"ttl_seconds"` // default 300 (5 min)
 }
 
+// QuotaDefaultsConfig holds the system-wide default quota limits applied to users
+// who have no per-user limits configured.
+type QuotaDefaultsConfig struct {
+	DailyLimitUSD   float64 `mapstructure:"daily_limit_usd"`
+	MonthlyLimitUSD float64 `mapstructure:"monthly_limit_usd"`
+}
+
 type Config struct {
-	Server        ServerConfig     `mapstructure:"server"`
-	Security      SecurityConfig   `mapstructure:"security"`
-	Routing       RoutingConfig    `mapstructure:"routing"`
-	Storage       StorageConfig    `mapstructure:"storage"`
-	Providers     []ProviderConfig `mapstructure:"providers"`
-	OAuth         OAuthConfigs     `mapstructure:"oauth"`
-	LogLevel      string           `mapstructure:"log_level"`
-	DataDir       string           `mapstructure:"data_dir"`
-	Webhooks      []WebhookConfig  `mapstructure:"webhooks"`
-	ResponseCache CacheConfig      `mapstructure:"response_cache"`
+	Server        ServerConfig        `mapstructure:"server"`
+	Security      SecurityConfig      `mapstructure:"security"`
+	Routing       RoutingConfig       `mapstructure:"routing"`
+	Storage       StorageConfig       `mapstructure:"storage"`
+	Providers     []ProviderConfig    `mapstructure:"providers"`
+	OAuth         OAuthConfigs        `mapstructure:"oauth"`
+	LogLevel      string              `mapstructure:"log_level"`
+	DataDir       string              `mapstructure:"data_dir"`
+	Webhooks      []WebhookConfig     `mapstructure:"webhooks"`
+	ResponseCache CacheConfig         `mapstructure:"response_cache"`
+	QuotaDefaults QuotaDefaultsConfig `mapstructure:"quota_defaults"`
 }
 
 // Validate checks the configuration for basic sanity.
