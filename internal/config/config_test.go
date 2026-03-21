@@ -77,6 +77,26 @@ oauth:
 	}
 }
 
+func TestConfigValidation(t *testing.T) {
+	cfg := &Config{}
+	cfg.Server.Port = 9000
+	cfg.Routing.MaxRetries = 3
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("valid config should not error: %v", err)
+	}
+
+	cfg.Server.Port = -1
+	if err := cfg.Validate(); err == nil {
+		t.Error("negative port should fail")
+	}
+
+	cfg.Server.Port = 9000
+	cfg.Storage.RetentionDays = -5
+	if err := cfg.Validate(); err == nil {
+		t.Error("negative retention should fail")
+	}
+}
+
 func TestEnvOverride(t *testing.T) {
 	t.Setenv("UNIAPI_PORT", "7777")
 	cfg, err := Load("")

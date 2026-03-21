@@ -1,8 +1,42 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+// Register only needed languages
+import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
+import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
+import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
+import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
+import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
+import go from 'react-syntax-highlighter/dist/esm/languages/prism/go';
+import rust from 'react-syntax-highlighter/dist/esm/languages/prism/rust';
+import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
+import css from 'react-syntax-highlighter/dist/esm/languages/prism/css';
+import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
+import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
+import docker from 'react-syntax-highlighter/dist/esm/languages/prism/docker';
+import java from 'react-syntax-highlighter/dist/esm/languages/prism/java';
+import c from 'react-syntax-highlighter/dist/esm/languages/prism/c';
+import cpp from 'react-syntax-highlighter/dist/esm/languages/prism/cpp';
+
+SyntaxHighlighter.registerLanguage('tsx', tsx);
+SyntaxHighlighter.registerLanguage('typescript', typescript);
+SyntaxHighlighter.registerLanguage('javascript', javascript);
+SyntaxHighlighter.registerLanguage('python', python);
+SyntaxHighlighter.registerLanguage('bash', bash);
+SyntaxHighlighter.registerLanguage('json', json);
+SyntaxHighlighter.registerLanguage('go', go);
+SyntaxHighlighter.registerLanguage('rust', rust);
+SyntaxHighlighter.registerLanguage('sql', sql);
+SyntaxHighlighter.registerLanguage('css', css);
+SyntaxHighlighter.registerLanguage('markdown', markdown);
+SyntaxHighlighter.registerLanguage('yaml', yaml);
+SyntaxHighlighter.registerLanguage('docker', docker);
+SyntaxHighlighter.registerLanguage('java', java);
+SyntaxHighlighter.registerLanguage('c', c);
+SyntaxHighlighter.registerLanguage('cpp', cpp);
 import type { Message, ToolCall } from '../types';
 
 // Lazy-load heavy libraries — only bundled into separate chunks, loaded on demand

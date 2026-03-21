@@ -19,6 +19,86 @@ import (
 	"github.com/sooneocean/uniapi/internal/usage"
 )
 
+// setupIntegrationFull returns a fully wired engine including settings and conversation routes.
+// It also returns the admin user's ID so callers can create valid JWTs.
+func setupIntegrationFull(t *testing.T) (*gin.Engine, *db.Database, *auth.JWTManager, string) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	encKey, _ := crypto.DeriveKey("test-secret")
+	jwtKey, _ := crypto.DeriveKeyWithInfo("test-secret", "jwt")
+	jwtMgr := auth.NewJWTManager(jwtKey, 1*time.Hour)
+
+	userRepo := repo.NewUserRepo(database)
+	accountRepo := repo.NewAccountRepo(database, encKey)
+	convoRepo := repo.NewConversationRepo(database)
+	recorder := usage.NewRecorder(database.DB)
+
+	// Create admin user and capture its ID
+	hash, _ := auth.HashPassword("admin123")
+	adminUser, _ := userRepo.Create("admin", hash, "admin")
+	adminID := adminUser.ID
+
+	// Setup router with fake provider
+	memCache := cache.New()
+	t.Cleanup(func() { memCache.Stop() })
+	rtr := router.New(memCache, router.Config{Strategy: "round_robin", MaxRetries: 1, FailoverAttempts: 1})
+
+	fake := &fakeProvider{name: "test", models: []provider.Model{{ID: "test-model", Name: "test-model", Provider: "test"}}}
+	rtr.AddAccount("test-acc", fake, 5)
+
+	// Build engine
+	engine := gin.New()
+	engine.Use(CORSMiddleware(nil))
+
+	// Auth routes
+	authHandler := NewAuthHandler(userRepo, jwtMgr, database, nil)
+	api := engine.Group("/api")
+	api.GET("/status", authHandler.Status)
+	api.POST("/setup", authHandler.Setup)
+	api.POST("/login", authHandler.Login)
+
+	apiAuth := api.Group("")
+	apiAuth.Use(JWTAuthMiddleware(jwtMgr))
+	apiAuth.GET("/me", authHandler.Me)
+
+	// Settings routes (providers, users, API keys)
+	settingsHandler := NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database, nil, nil, rtr)
+	apiAuth.GET("/providers", settingsHandler.ListProviders)
+	apiAuth.POST("/providers", settingsHandler.AddProvider)
+	apiAuth.DELETE("/providers/:id", settingsHandler.DeleteProvider)
+	apiAuth.GET("/provider-templates", settingsHandler.ListTemplates)
+	apiAuth.GET("/users", settingsHandler.ListUsers)
+	apiAuth.POST("/users", settingsHandler.CreateUser)
+	apiAuth.DELETE("/users/:id", settingsHandler.DeleteUser)
+	apiAuth.GET("/api-keys", settingsHandler.ListAPIKeys)
+	apiAuth.POST("/api-keys", settingsHandler.CreateAPIKey)
+	apiAuth.DELETE("/api-keys/:id", settingsHandler.DeleteAPIKey)
+
+	// Conversation routes
+	convoHandler := NewConversationHandler(convoRepo, rtr, nil)
+	apiAuth.GET("/conversations", convoHandler.ListConversations)
+	apiAuth.POST("/conversations", convoHandler.CreateConversation)
+	apiAuth.GET("/conversations/:id", convoHandler.GetConversation)
+	apiAuth.PUT("/conversations/:id", convoHandler.UpdateConversation)
+	apiAuth.DELETE("/conversations/:id", convoHandler.DeleteConversation)
+
+	// API routes
+	apiHandler := NewAPIHandler(rtr, recorder)
+	v1 := engine.Group("/v1")
+	v1.Use(APIKeyAuthMiddleware(database.DB, jwtMgr, memCache))
+	v1.POST("/chat/completions", apiHandler.ChatCompletions)
+	v1.GET("/models", apiHandler.ListModels)
+
+	return engine, database, jwtMgr, adminID
+}
+
 // setupIntegration creates a fully wired test server
 func setupIntegration(t *testing.T) (*gin.Engine, *db.Database, *auth.JWTManager) {
 	t.Helper()

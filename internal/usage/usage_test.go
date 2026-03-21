@@ -100,6 +100,26 @@ func TestRecordAndGetUserUsage(t *testing.T) {
 	}
 }
 
+func TestRecorderFlushOnStop(t *testing.T) {
+	database, _ := db.Open(":memory:")
+	defer database.Close()
+	database.DB.Exec("INSERT INTO users (id, username, password, role) VALUES ('u1', 'alice', 'h', 'admin')")
+
+	recorder := NewRecorder(database.DB)
+	recorder.RecordUsage(UsageRecord{UserID: "u1", Provider: "openai", Model: "gpt-4o", TokensIn: 100, TokensOut: 50, Cost: 0.001})
+	recorder.RecordUsage(UsageRecord{UserID: "u1", Provider: "openai", Model: "gpt-4o", TokensIn: 200, TokensOut: 100, Cost: 0.002})
+
+	// Stop should flush
+	recorder.Stop()
+
+	// Verify data was flushed
+	var count int
+	database.DB.QueryRow("SELECT request_count FROM usage_daily WHERE user_id = 'u1' AND model = 'gpt-4o'").Scan(&count)
+	if count != 2 {
+		t.Errorf("expected 2 requests flushed, got %d", count)
+	}
+}
+
 func TestRecordUsage_Upsert(t *testing.T) {
 	database := openTestDB(t)
 
