@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,13 +18,14 @@ import (
 )
 
 type SettingsHandler struct {
-	accountRepo     *repo.AccountRepo
-	userRepo        *repo.UserRepo
-	convoRepo       *repo.ConversationRepo
-	recorder        *usage.Recorder
-	database        *db.Database
-	audit           *audit.Logger
-	registerAccount func(acc *repo.Account)
+	accountRepo      *repo.AccountRepo
+	userRepo         *repo.UserRepo
+	convoRepo        *repo.ConversationRepo
+	systemPromptRepo *repo.SystemPromptRepo
+	recorder         *usage.Recorder
+	database         *db.Database
+	audit            *audit.Logger
+	registerAccount  func(acc *repo.Account)
 }
 
 func NewSettingsHandler(
@@ -35,13 +38,14 @@ func NewSettingsHandler(
 	registerAccount func(acc *repo.Account),
 ) *SettingsHandler {
 	return &SettingsHandler{
-		accountRepo:     accountRepo,
-		userRepo:        userRepo,
-		convoRepo:       convoRepo,
-		recorder:        recorder,
-		database:        database,
-		audit:           auditLogger,
-		registerAccount: registerAccount,
+		accountRepo:      accountRepo,
+		userRepo:         userRepo,
+		convoRepo:        convoRepo,
+		systemPromptRepo: repo.NewSystemPromptRepo(database),
+		recorder:         recorder,
+		database:         database,
+		audit:            auditLogger,
+		registerAccount:  registerAccount,
 	}
 }
 
@@ -694,4 +698,212 @@ func (h *SettingsHandler) GetAllUsage(c *gin.Context) {
 		results = []usage.UserUsageSummary{}
 	}
 	c.JSON(http.StatusOK, results)
+}
+
+// ─── Message edit / regenerate ────────────────────────────────────────────────
+
+// DELETE /api/conversations/:id/messages/:msgId
+func (h *SettingsHandler) DeleteMessageAndAfter(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+	convoID := c.Param("id")
+	msgID := c.Param("msgId")
+
+	conv, err := h.convoRepo.GetByID(convoID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		return
+	}
+	if conv.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+
+	if err := h.convoRepo.DeleteMessageAndAfter(convoID, msgID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// ─── Conversation export ──────────────────────────────────────────────────────
+
+// GET /api/conversations/:id/export?format=markdown|json
+func (h *SettingsHandler) ExportConversation(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+	convoID := c.Param("id")
+	format := c.DefaultQuery("format", "markdown")
+
+	conv, err := h.convoRepo.GetByID(convoID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		return
+	}
+	if conv.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+
+	messages, err := h.convoRepo.GetMessages(convoID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if messages == nil {
+		messages = []repo.MessageRecord{}
+	}
+
+	switch format {
+	case "json":
+		c.JSON(http.StatusOK, gin.H{"conversation": conv, "messages": messages})
+	case "markdown":
+		var md strings.Builder
+		md.WriteString("# " + conv.Title + "\n\n")
+		for _, m := range messages {
+			role := strings.ToUpper(m.Role[:1]) + m.Role[1:]
+			md.WriteString("## " + role + "\n\n")
+			md.WriteString(m.Content + "\n\n")
+		}
+		safeTitle := strings.ReplaceAll(conv.Title, " ", "_")
+		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.md", safeTitle))
+		c.Data(http.StatusOK, "text/markdown", []byte(md.String()))
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported format, use markdown or json"})
+	}
+}
+
+// ─── System prompts ───────────────────────────────────────────────────────────
+
+// GET /api/system-prompts
+func (h *SettingsHandler) ListSystemPrompts(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+	prompts, err := h.systemPromptRepo.ListByUser(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if prompts == nil {
+		prompts = []repo.SystemPrompt{}
+	}
+	c.JSON(http.StatusOK, prompts)
+}
+
+type systemPromptRequest struct {
+	Name      string `json:"name" binding:"required"`
+	Content   string `json:"content" binding:"required"`
+	IsDefault bool   `json:"is_default"`
+}
+
+// POST /api/system-prompts
+func (h *SettingsHandler) CreateSystemPrompt(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+	var req systemPromptRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	sp, err := h.systemPromptRepo.Create(userID, req.Name, req.Content, req.IsDefault)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, sp)
+}
+
+// PUT /api/system-prompts/:id
+func (h *SettingsHandler) UpdateSystemPrompt(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+	id := c.Param("id")
+	sp, err := h.systemPromptRepo.GetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "system prompt not found"})
+		return
+	}
+	if sp.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+	var req systemPromptRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.systemPromptRepo.Update(id, req.Name, req.Content, req.IsDefault); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// DELETE /api/system-prompts/:id
+func (h *SettingsHandler) DeleteSystemPrompt(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+	id := c.Param("id")
+	sp, err := h.systemPromptRepo.GetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "system prompt not found"})
+		return
+	}
+	if sp.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+	if err := h.systemPromptRepo.Delete(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }

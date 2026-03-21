@@ -5,15 +5,18 @@ import type { Message } from '../types';
 
 interface Props {
   message: Message;
+  isLastAssistant?: boolean;
+  onEdit?: (messageId: string, content: string) => void;
+  onRegenerate?: () => void;
 }
 
-export default function MessageBubble({ message }: Props) {
+export default function MessageBubble({ message, isLastAssistant, onEdit, onRegenerate }: Props) {
   const isUser = message.role === 'user';
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
+    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4 group`}>
       <div
-        className={`max-w-[70%] rounded-2xl px-4 py-3 ${
+        className={`max-w-[70%] rounded-2xl px-4 py-3 relative ${
           isUser
             ? 'bg-blue-600 text-white'
             : 'bg-gray-700 text-gray-100'
@@ -66,6 +69,26 @@ export default function MessageBubble({ message }: Props) {
               <span className="ml-2">{message.latencyMs}ms</span>
             )}
           </div>
+        )}
+
+        {/* Action buttons */}
+        {isUser && onEdit && (
+          <button
+            className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 bg-gray-600 hover:bg-gray-500 text-gray-200 rounded-full w-6 h-6 flex items-center justify-center text-xs transition-all shadow"
+            onClick={() => onEdit(message.id, message.content)}
+            title="Edit message"
+          >
+            ✎
+          </button>
+        )}
+        {!isUser && isLastAssistant && onRegenerate && (
+          <button
+            className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 bg-gray-600 hover:bg-gray-500 text-gray-200 rounded-full w-6 h-6 flex items-center justify-center text-xs transition-all shadow"
+            onClick={onRegenerate}
+            title="Regenerate response"
+          >
+            ↻
+          </button>
         )}
       </div>
     </div>

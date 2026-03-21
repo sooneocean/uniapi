@@ -281,6 +281,14 @@ func main() {
 	apiAuth.PUT("/conversations/:id", settingsHandler.UpdateConversation)
 	apiAuth.DELETE("/conversations/:id", settingsHandler.DeleteConversation)
 	apiAuth.POST("/conversations/:id/messages", settingsHandler.AddMessage)
+	apiAuth.DELETE("/conversations/:id/messages/:msgId", settingsHandler.DeleteMessageAndAfter)
+	apiAuth.GET("/conversations/:id/export", settingsHandler.ExportConversation)
+
+	// System prompts
+	apiAuth.GET("/system-prompts", settingsHandler.ListSystemPrompts)
+	apiAuth.POST("/system-prompts", settingsHandler.CreateSystemPrompt)
+	apiAuth.PUT("/system-prompts/:id", settingsHandler.UpdateSystemPrompt)
+	apiAuth.DELETE("/system-prompts/:id", settingsHandler.DeleteSystemPrompt)
 
 	// Usage
 	apiAuth.GET("/usage", settingsHandler.GetUsage)

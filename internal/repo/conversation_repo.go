@@ -150,6 +150,22 @@ func (r *ConversationRepo) AddMessage(msg *MessageRecord) error {
 	return nil
 }
 
+func (r *ConversationRepo) DeleteMessageAndAfter(conversationID, messageID string) error {
+	var createdAt time.Time
+	err := r.db.DB.QueryRow(
+		"SELECT created_at FROM messages WHERE id = ? AND conversation_id = ?",
+		messageID, conversationID,
+	).Scan(&createdAt)
+	if err != nil {
+		return fmt.Errorf("message not found: %w", err)
+	}
+	_, err = r.db.DB.Exec(
+		"DELETE FROM messages WHERE conversation_id = ? AND created_at >= ?",
+		conversationID, createdAt,
+	)
+	return err
+}
+
 func (r *ConversationRepo) GetMessages(conversationID string) ([]MessageRecord, error) {
 	rows, err := r.db.DB.Query(
 		`SELECT id, conversation_id, role, content, model, provider, tokens_in, tokens_out, cost, latency_ms, created_at

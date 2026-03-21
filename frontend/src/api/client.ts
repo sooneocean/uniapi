@@ -137,6 +137,35 @@ export async function saveMessage(
   return (await api.post(`/api/conversations/${conversationId}/messages`, message)).data;
 }
 
+export async function deleteMessageAndAfter(conversationId: string, messageId: string) {
+  await api.delete(`/api/conversations/${conversationId}/messages/${messageId}`);
+}
+
+export async function exportConversation(id: string, format: 'markdown' | 'json') {
+  const resp = await api.get(`/api/conversations/${id}/export?format=${format}`, {
+    responseType: format === 'markdown' ? 'blob' : 'json',
+  });
+  if (format === 'markdown') {
+    const url = URL.createObjectURL(resp.data);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `conversation.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+  return resp.data;
+}
+
+// System prompts
+export async function getSystemPrompts() { return (await api.get('/api/system-prompts')).data; }
+export async function createSystemPrompt(data: { name: string; content: string; is_default?: boolean }) {
+  return (await api.post('/api/system-prompts', data)).data;
+}
+export async function updateSystemPrompt(id: string, data: { name: string; content: string; is_default?: boolean }) {
+  return (await api.put(`/api/system-prompts/${id}`, data)).data;
+}
+export async function deleteSystemPrompt(id: string) { await api.delete(`/api/system-prompts/${id}`); }
+
 // Usage
 export async function getUsage(range: string) { return (await api.get(`/api/usage?range=${range}`)).data; }
 export async function getAllUsage(range: string) { return (await api.get(`/api/usage/all?range=${range}`)).data; }
