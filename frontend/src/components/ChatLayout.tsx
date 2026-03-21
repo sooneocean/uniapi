@@ -14,9 +14,10 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 interface Props {
   onShowAccounts?: () => void;
+  onShowPlayground?: () => void;
 }
 
-export default function ChatLayout({ onShowAccounts }: Props) {
+export default function ChatLayout({ onShowAccounts, onShowPlayground }: Props) {
   const { t } = useTranslation();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -126,6 +127,14 @@ export default function ChatLayout({ onShowAccounts }: Props) {
 
           {/* Right side icons */}
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => onShowPlayground?.()}
+              title="API Playground"
+              className="text-gray-400 hover:text-white transition-colors text-sm px-2 py-1 rounded hover:bg-gray-700 border border-gray-600"
+              aria-label="API Playground"
+            >
+              🧪 API
+            </button>
             <button
               onClick={() => setShowCompare(true)}
               title="Compare Models"

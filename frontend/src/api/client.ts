@@ -243,6 +243,29 @@ export async function compareModels(prompt: string, models: string[], systemProm
   return resp.data.results;
 }
 
+// Playground
+export async function sendPlaygroundRequest(method: string, path: string, apiKey: string, body?: any) {
+  const headers: Record<string, string> = { 'Authorization': `Bearer ${apiKey}` };
+  if (body) headers['Content-Type'] = 'application/json';
+
+  const start = Date.now();
+  const resp = await fetch(path, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const elapsed = Date.now() - start;
+  const data = await resp.text();
+
+  return {
+    status: resp.status,
+    statusText: resp.statusText,
+    elapsed,
+    body: data,
+    headers: Object.fromEntries(resp.headers.entries()),
+  };
+}
+
 // OAuth / Binding
 export async function getOAuthProviders() {
   return (await api.get('/api/oauth/providers')).data;

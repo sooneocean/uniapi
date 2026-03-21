@@ -4,6 +4,7 @@ import SetupWizard from './components/SetupWizard';
 import LoginPage from './components/LoginPage';
 import MyAccounts from './components/MyAccounts';
 import SharedView from './components/SharedView';
+import APIPlayground from './components/APIPlayground';
 import { getStatus } from './api/client';
 
 function getSharedToken(): string | null {
@@ -21,7 +22,7 @@ function App() {
   }
 
   const [state, setState] = useState<'loading' | 'setup' | 'login' | 'chat'>('loading');
-  const [page, setPage] = useState<'chat' | 'accounts'>('chat');
+  const [page, setPage] = useState<'chat' | 'accounts' | 'playground'>('chat');
 
   useEffect(() => {
     getStatus().then(s => {
@@ -37,7 +38,10 @@ function App() {
   if (state === 'chat' && page === 'accounts') {
     return <MyAccounts onBack={() => setPage('chat')} />;
   }
-  return <ChatLayout onShowAccounts={() => setPage('accounts')} />;
+  if (state === 'chat' && page === 'playground') {
+    return <APIPlayground onBack={() => setPage('chat')} />;
+  }
+  return <ChatLayout onShowAccounts={() => setPage('accounts')} onShowPlayground={() => setPage('playground')} />;
 }
 
 export default App;

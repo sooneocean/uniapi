@@ -16,6 +16,8 @@ import ModelSelector from './ModelSelector';
 import MessageBubble from './MessageBubble';
 import StatusBar from './StatusBar';
 import SystemPromptSelector from './SystemPromptSelector';
+import VoiceInput from './VoiceInput';
+import FileAttachment, { type AttachedFile, formatAttachedFiles } from './FileAttachment';
 import { estimateTokens, estimateCost } from '../utils/tokenEstimator';
 
 interface Props {
@@ -30,6 +32,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
   const [conversationTitle, setConversationTitle] = useState('');
   const [input, setInput] = useState('');
   const [pendingImages, setPendingImages] = useState<string[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [loading, setLoading] = useState(false);
   const [lastStats, setLastStats] = useState({ tokensIn: 0, tokensOut: 0, latencyMs: 0 });
@@ -207,7 +210,9 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
   };
 
   const handleSend = () => {
-    doSend(input.trim(), messages, pendingImages);
+    const text = formatAttachedFiles(attachedFiles, input.trim());
+    setAttachedFiles([]);
+    doSend(text, messages, pendingImages);
   };
 
   const handleEdit = async (messageId: string, content: string) => {
@@ -307,8 +312,67 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
     return -1;
   })();
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    // Attempt to process as text/code files (FileAttachment logic inline here)
+    const MAX_FILE_SIZE_DROP = 100 * 1024;
+    const MAX_FILES_DROP = 5;
+    const SUPPORTED_TYPES_DROP: Record<string, boolean> = {
+      'text/plain': true, 'text/markdown': true, 'text/csv': true,
+      'text/html': true, 'application/json': true, 'application/javascript': true,
+      'text/javascript': true, 'text/css': true, 'text/xml': true,
+      'application/xml': true, 'application/x-yaml': true, 'text/yaml': true,
+    };
+    const isCode = (name: string) => {
+      const ext = name.split('.').pop()?.toLowerCase() || '';
+      return ['py','js','ts','tsx','jsx','go','rs','java','c','cpp','h','hpp',
+        'rb','php','swift','kt','scala','sh','bash','sql','r','lua',
+        'toml','ini','cfg','env','dockerfile','makefile','yaml','yml',
+        'md','txt','csv','log','xml','html','css','scss','json'].includes(ext);
+    };
+    const newFiles: AttachedFile[] = [];
+    for (const file of Array.from(files)) {
+      if (attachedFiles.length + newFiles.length >= MAX_FILES_DROP) break;
+      if (file.size > MAX_FILE_SIZE_DROP) continue;
+      if (!SUPPORTED_TYPES_DROP[file.type] && !isCode(file.name)) {
+        // Try as image
+        if (file.type.startsWith('image/')) {
+          const reader = new FileReader();
+          reader.onload = () => setPendingImages((prev) => [...prev, reader.result as string]);
+          reader.readAsDataURL(file);
+        }
+        continue;
+      }
+      try {
+        const content = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsText(file);
+        });
+        newFiles.push({ name: file.name, content, type: file.type });
+      } catch {}
+    }
+    if (newFiles.length > 0) {
+      setAttachedFiles((prev) => [...prev, ...newFiles]);
+    }
+  };
+
   return (
-    <div className="flex flex-col h-full" style={{ background: 'var(--bg-primary)' }}>
+    <div
+      className="flex flex-col h-full"
+      style={{ background: 'var(--bg-primary)' }}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       {/* Share dialog */}
       {showShareDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowShareDialog(false)}>
@@ -472,6 +536,27 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
         </div>
       )}
 
+      {/* File chips */}
+      {attachedFiles.length > 0 && (
+        <div className="px-2 md:px-4 pt-2 flex flex-wrap gap-1" style={{ background: 'var(--bg-secondary)' }}>
+          {attachedFiles.map((file, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-1 px-2 py-1 bg-gray-700 border border-gray-600 rounded-lg text-xs text-gray-300"
+            >
+              <span className="max-w-[150px] truncate" title={file.name}>{file.name}</span>
+              <button
+                onClick={() => setAttachedFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                className="text-gray-500 hover:text-red-400 transition-colors ml-1"
+                title="Remove file"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Input area */}
       <div className="px-2 md:px-4 py-3 border-t border-gray-700" style={{ background: 'var(--bg-secondary)' }}>
         {/* Token estimate */}
@@ -484,7 +569,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
           </div>
         )}
         <div className="flex items-end gap-2">
-          {/* Hidden file input */}
+          {/* Hidden image file input */}
           <input
             ref={fileInputRef}
             type="file"
@@ -503,6 +588,12 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
           >
             📎
           </button>
+          {/* File attachment button */}
+          <FileAttachment
+            attachedFiles={attachedFiles}
+            onFilesChange={setAttachedFiles}
+            disabled={loading}
+          />
           <textarea
             ref={inputRef}
             value={input}
@@ -520,9 +611,14 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
               el.style.height = Math.min(el.scrollHeight, 160) + 'px';
             }}
           />
+          {/* Voice input */}
+          <VoiceInput
+            onTranscript={(text) => setInput((prev) => prev + (prev ? ' ' : '') + text)}
+            disabled={loading}
+          />
           <button
             onClick={handleSend}
-            disabled={loading || (!input.trim() && pendingImages.length === 0) || !selectedModel}
+            disabled={loading || (!input.trim() && pendingImages.length === 0 && attachedFiles.length === 0) || !selectedModel}
             className="px-4 py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {t('chat.send')}
