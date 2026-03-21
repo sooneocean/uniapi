@@ -2,7 +2,6 @@ package openai
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -314,37 +313,19 @@ func messageContent(m openaiMessage) string {
 
 // ChatCompletion implements provider.Provider.
 func (o *OpenAI) ChatCompletion(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
-	wireReq := convertRequest(req)
-	body, err := json.Marshal(wireReq)
-	if err != nil {
-		return nil, fmt.Errorf("openai: marshal request: %w", err)
-	}
+	oaiReq := convertRequest(req)
+	cred, _ := o.credFunc()
 
-	url := o.baseURL + "/v1/chat/completions"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	headers := map[string]string{"Authorization": "Bearer " + cred}
+	respBody, err := provider.DoJSON(o.client, ctx, "POST", o.baseURL+"/v1/chat/completions", headers, oaiReq)
 	if err != nil {
-		return nil, fmt.Errorf("openai: create request: %w", err)
-	}
-	cred, authType := o.credFunc()
-	_ = authType // OpenAI and openai_compatible both use Bearer regardless of authType
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+cred)
-
-	resp, err := o.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("openai: do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("openai: unexpected status %d", resp.StatusCode)
+		return nil, fmt.Errorf("openai: %w", err)
 	}
 
 	var wireResp openaiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&wireResp); err != nil {
+	if err := json.Unmarshal(respBody, &wireResp); err != nil {
 		return nil, fmt.Errorf("openai: decode response: %w", err)
 	}
-
 	return convertResponse(&wireResp), nil
 }
 
@@ -352,28 +333,15 @@ func (o *OpenAI) ChatCompletion(ctx context.Context, req *provider.ChatRequest) 
 func (o *OpenAI) ChatCompletionStream(ctx context.Context, req *provider.ChatRequest) (provider.Stream, error) {
 	oaiReq := convertRequest(req)
 	oaiReq.Stream = true
-	body, _ := json.Marshal(oaiReq)
+	cred, _ := o.credFunc()
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL+"/v1/chat/completions", bytes.NewReader(body))
+	headers := map[string]string{"Authorization": "Bearer " + cred}
+	body, err := provider.DoStream(o.client, ctx, "POST", o.baseURL+"/v1/chat/completions", headers, oaiReq)
 	if err != nil {
-		return nil, fmt.Errorf("openai: create stream request: %w", err)
-	}
-	cred, authType := o.credFunc()
-	_ = authType // OpenAI and openai_compatible both use Bearer regardless of authType
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+cred)
-
-	resp, err := o.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("openai: do stream request: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("openai error (%d): %s", resp.StatusCode, string(b))
+		return nil, fmt.Errorf("openai: %w", err)
 	}
 
-	return &sseStream{reader: bufio.NewReader(resp.Body), body: resp.Body, ctx: ctx, model: req.Model}, nil
+	return &sseStream{reader: bufio.NewReader(body), body: body, ctx: ctx, model: req.Model}, nil
 }
 
 type sseStream struct {

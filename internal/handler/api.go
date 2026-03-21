@@ -123,7 +123,7 @@ func parseContentBlocks(raw interface{}) []provider.ContentBlock {
 		}
 		return blocks
 	default:
-		return []provider.ContentBlock{{Type: "text", Text: fmt.Sprintf("%v", raw)}}
+		return []provider.ContentBlock{{Type: "text", Text: ""}}
 	}
 }
 
@@ -199,14 +199,16 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 			if tcList, ok := m.ToolCalls.([]interface{}); ok {
 				for _, tc := range tcList {
 					if tcMap, ok := tc.(map[string]interface{}); ok {
-						call := &provider.ToolCall{
-							ID:   fmt.Sprintf("%v", tcMap["id"]),
-							Type: fmt.Sprintf("%v", tcMap["type"]),
-						}
-						if fn, ok := tcMap["function"].(map[string]interface{}); ok {
-							call.Function.Name = fmt.Sprintf("%v", fn["name"])
-							call.Function.Arguments = fmt.Sprintf("%v", fn["arguments"])
-						}
+						id, _ := tcMap["id"].(string)
+					tcType, _ := tcMap["type"].(string)
+					call := &provider.ToolCall{
+						ID:   id,
+						Type: tcType,
+					}
+					if fn, ok := tcMap["function"].(map[string]interface{}); ok {
+						call.Function.Name, _ = fn["name"].(string)
+						call.Function.Arguments, _ = fn["arguments"].(string)
+					}
 						blocks = append(blocks, provider.ContentBlock{
 							Type:    "tool_use",
 							ToolUse: call,
@@ -395,6 +397,22 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 	})
 }
 
+// streamChunk is the SSE JSON payload for a single streaming chunk.
+type streamChunk struct {
+	ID      string        `json:"id"`
+	Object  string        `json:"object"`
+	Created int64         `json:"created"`
+	Model   string        `json:"model"`
+	Choices []streamDelta `json:"choices"`
+}
+
+// streamDelta is a single choice delta within a streamChunk.
+type streamDelta struct {
+	Index        int               `json:"index"`
+	Delta        map[string]string `json:"delta"`
+	FinishReason *string           `json:"finish_reason"`
+}
+
 func (h *APIHandler) handleStream(c *gin.Context, req *provider.ChatRequest) {
 	userID := ""
 	if uid, exists := c.Get("user_id"); exists {
@@ -456,18 +474,15 @@ func (h *APIHandler) handleStream(c *gin.Context, req *provider.ChatRequest) {
 			break
 		}
 		if event.Type == "content_delta" {
-			chunk := map[string]interface{}{
-				"id":      id,
-				"object":  "chat.completion.chunk",
-				"created": created,
-				"model":   model,
-				"choices": []map[string]interface{}{
-					{
-						"index":         0,
-						"delta":         map[string]interface{}{"content": event.Content.Text},
-						"finish_reason": nil,
-					},
-				},
+			chunk := streamChunk{
+				ID:      id,
+				Object:  "chat.completion.chunk",
+				Created: created,
+				Model:   model,
+				Choices: []streamDelta{{
+					Index: 0,
+					Delta: map[string]string{"content": event.Content.Text},
+				}},
 			}
 			fmt.Fprint(w, "data: ")
 			encoder.Encode(chunk) // writes JSON + newline

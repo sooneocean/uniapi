@@ -13,6 +13,17 @@ import (
 	"github.com/sooneocean/uniapi/internal/provider"
 )
 
+// anthropicHeaders returns the authentication headers for the Anthropic API.
+func anthropicHeaders(cred, authType string) map[string]string {
+	h := map[string]string{"anthropic-version": anthropicVersion}
+	if authType == "api_key" {
+		h["x-api-key"] = cred
+	} else {
+		h["Authorization"] = "Bearer " + cred
+	}
+	return h
+}
+
 // extractBase64Data strips the "data:<media_type>;base64," prefix from a data URL
 // and returns the media type and raw base64 data.
 func extractBase64Data(dataURL string) (mediaType string, data string) {
@@ -299,40 +310,17 @@ func convertResponse(resp *anthropicResponse) *provider.ChatResponse {
 // ChatCompletion implements provider.Provider.
 func (a *Anthropic) ChatCompletion(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 	wireReq := convertRequest(req)
-	body, err := json.Marshal(wireReq)
-	if err != nil {
-		return nil, fmt.Errorf("anthropic: marshal request: %w", err)
-	}
-
-	url := a.baseURL + "/v1/messages"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("anthropic: create request: %w", err)
-	}
 	cred, authType := a.credFunc()
-	httpReq.Header.Set("Content-Type", "application/json")
-	if authType == "api_key" {
-		httpReq.Header.Set("x-api-key", cred)
-	} else {
-		httpReq.Header.Set("Authorization", "Bearer "+cred)
-	}
-	httpReq.Header.Set("anthropic-version", anthropicVersion)
 
-	resp, err := a.client.Do(httpReq)
+	respBody, err := provider.DoJSON(a.client, ctx, "POST", a.baseURL+"/v1/messages", anthropicHeaders(cred, authType), wireReq)
 	if err != nil {
-		return nil, fmt.Errorf("anthropic: do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("anthropic: unexpected status %d", resp.StatusCode)
+		return nil, fmt.Errorf("anthropic: %w", err)
 	}
 
 	var wireResp anthropicResponse
-	if err := json.NewDecoder(resp.Body).Decode(&wireResp); err != nil {
+	if err := json.Unmarshal(respBody, &wireResp); err != nil {
 		return nil, fmt.Errorf("anthropic: decode response: %w", err)
 	}
-
 	return convertResponse(&wireResp), nil
 }
 
@@ -340,32 +328,14 @@ func (a *Anthropic) ChatCompletion(ctx context.Context, req *provider.ChatReques
 func (a *Anthropic) ChatCompletionStream(ctx context.Context, req *provider.ChatRequest) (provider.Stream, error) {
 	cReq := convertRequest(req)
 	cReq.Stream = true
-	body, _ := json.Marshal(cReq)
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/v1/messages", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("anthropic: create stream request: %w", err)
-	}
 	cred, authType := a.credFunc()
-	httpReq.Header.Set("Content-Type", "application/json")
-	if authType == "api_key" {
-		httpReq.Header.Set("x-api-key", cred)
-	} else {
-		httpReq.Header.Set("Authorization", "Bearer "+cred)
-	}
-	httpReq.Header.Set("anthropic-version", anthropicVersion)
 
-	resp, err := a.client.Do(httpReq)
+	body, err := provider.DoStream(a.client, ctx, "POST", a.baseURL+"/v1/messages", anthropicHeaders(cred, authType), cReq)
 	if err != nil {
-		return nil, fmt.Errorf("anthropic: do stream request: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("anthropic error (%d): %s", resp.StatusCode, string(b))
+		return nil, fmt.Errorf("anthropic: %w", err)
 	}
 
-	return &anthropicStream{reader: bufio.NewReader(resp.Body), body: resp.Body, ctx: ctx, model: req.Model}, nil
+	return &anthropicStream{reader: bufio.NewReader(body), body: body, ctx: ctx, model: req.Model}, nil
 }
 
 type anthropicStream struct {

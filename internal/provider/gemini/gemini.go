@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -166,42 +165,25 @@ func convertResponse(resp *geminiResponse, model string) *provider.ChatResponse 
 // ChatCompletion implements provider.Provider.
 func (g *Gemini) ChatCompletion(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 	wireReq := convertRequest(req)
-	body, err := json.Marshal(wireReq)
-	if err != nil {
-		return nil, fmt.Errorf("gemini: marshal request: %w", err)
-	}
-
 	cred, authType := g.credFunc()
-	var url string
+
+	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent", g.baseURL, req.Model)
+	headers := map[string]string{}
 	if authType == "api_key" {
-		url = fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", g.baseURL, req.Model, cred)
+		url += "?key=" + cred
 	} else {
-		url = fmt.Sprintf("%s/v1beta/models/%s:generateContent", g.baseURL, req.Model)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("gemini: create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	if authType != "api_key" {
-		httpReq.Header.Set("Authorization", "Bearer "+cred)
+		headers["Authorization"] = "Bearer " + cred
 	}
 
-	resp, err := g.client.Do(httpReq)
+	respBody, err := provider.DoJSON(g.client, ctx, "POST", url, headers, wireReq)
 	if err != nil {
-		return nil, fmt.Errorf("gemini: do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("gemini: unexpected status %d", resp.StatusCode)
+		return nil, fmt.Errorf("gemini: %w", err)
 	}
 
 	var wireResp geminiResponse
-	if err := json.NewDecoder(resp.Body).Decode(&wireResp); err != nil {
+	if err := json.Unmarshal(respBody, &wireResp); err != nil {
 		return nil, fmt.Errorf("gemini: decode response: %w", err)
 	}
-
 	return convertResponse(&wireResp, req.Model), nil
 }
 
