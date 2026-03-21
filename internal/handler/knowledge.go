@@ -28,7 +28,7 @@ func (h *KnowledgeHandler) Upload(c *gin.Context) {
 	}
 	doc, err := h.mgr.Upload(userID, req.Title, req.Content, req.Shared)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	c.JSON(http.StatusCreated, doc)
@@ -38,7 +38,7 @@ func (h *KnowledgeHandler) List(c *gin.Context) {
 	userID := mustUserID(c)
 	docs, err := h.mgr.ListDocs(userID)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	if docs == nil {
@@ -51,7 +51,7 @@ func (h *KnowledgeHandler) Delete(c *gin.Context) {
 	userID := mustUserID(c)
 	id := c.Param("id")
 	if err := h.mgr.DeleteDoc(id, userID); err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	c.Status(http.StatusNoContent)

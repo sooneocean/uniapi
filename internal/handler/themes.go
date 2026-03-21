@@ -32,7 +32,7 @@ func (h *ThemesHandler) List(c *gin.Context) {
 		`SELECT id, user_id, name, colors, shared, created_at FROM themes WHERE user_id = ? OR shared = 1 ORDER BY created_at DESC`,
 		userID)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	defer rows.Close()
@@ -68,7 +68,7 @@ func (h *ThemesHandler) Create(c *gin.Context) {
 		`INSERT INTO themes (id, user_id, name, colors, shared) VALUES (?,?,?,?,?)`,
 		id, userID, req.Name, req.Colors, req.Shared)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	c.JSON(http.StatusCreated, Theme{ID: id, UserID: userID, Name: req.Name, Colors: req.Colors, Shared: req.Shared})
@@ -111,7 +111,7 @@ func (h *ThemesHandler) Apply(c *gin.Context) {
 
 	_, err := h.db.Exec("UPDATE users SET active_theme = ? WHERE id = ?", id, userID)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "active_theme": id})

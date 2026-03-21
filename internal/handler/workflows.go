@@ -29,7 +29,7 @@ func (h *WorkflowsHandler) List(c *gin.Context) {
 		`SELECT id, user_id, name, description, steps, shared, run_count
 		 FROM workflows WHERE user_id = ? OR shared = 1 ORDER BY created_at DESC`, userID)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	defer rows.Close()
@@ -72,7 +72,7 @@ func (h *WorkflowsHandler) Create(c *gin.Context) {
 		`INSERT INTO workflows (id, user_id, name, description, steps, shared) VALUES (?,?,?,?,?,?)`,
 		id, userID, req.Name, req.Description, string(stepsJSON), req.Shared)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	c.JSON(http.StatusCreated, workflow.Workflow{
@@ -116,7 +116,7 @@ func (h *WorkflowsHandler) Update(c *gin.Context) {
 		`UPDATE workflows SET name=?, description=?, steps=?, shared=? WHERE id=?`,
 		req.Name, req.Description, string(stepsJSON), req.Shared, id)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	success(c, gin.H{"ok": true})
@@ -161,7 +161,7 @@ func (h *WorkflowsHandler) Run(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	wf.Shared = sharedInt == 1
@@ -183,7 +183,7 @@ func (h *WorkflowsHandler) Run(c *gin.Context) {
 
 	result, err := workflow.Execute(ctx, wf, req.Input, routeFn, userID)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 

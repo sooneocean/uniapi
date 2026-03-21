@@ -284,36 +284,104 @@ func main() {
 	}
 	respCache := handler.NewResponseCache(memCache, time.Duration(cacheTTL)*time.Second, cfg.ResponseCache.Enabled)
 
-	// Auth routes
+	// Build handlers
 	authHandler := handler.NewAuthHandler(userRepo, jwtMgr, database, auditLogger)
 	authHandler.SetWebhookManager(webhookMgr)
+	settingsHandler := handler.NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database, auditLogger, registerAccount, rtr)
+	convoHandler := handler.NewConversationHandler(convoRepo, rtr, auditLogger)
+	systemPromptRepo := repo.NewSystemPromptRepo(database)
+	promptHandler := handler.NewSystemPromptHandler(systemPromptRepo)
+	usageHandler := handler.NewUsageHandler(database, recorder, auditLogger)
+	adminHandler := handler.NewAdminHandler(database, convoRepo, systemPromptRepo, auditLogger)
+	oauthHandler := handler.NewOAuthHandler(oauthMgr, rtr, registerAccount, auditLogger)
+	oauthHandler.SetWebhookManager(webhookMgr)
+	modelAliasHandler := handler.NewModelAliasHandlerWithCache(database.DB, memCache)
+	knowledgeHandler := handler.NewKnowledgeHandler(ragMgr)
+	pluginHandler := handler.NewPluginHandler(pluginMgr)
+	templatesHandler := handler.NewTemplatesHandler(database)
+	roomsHandler := handler.NewRoomsHandler(database.DB, rtr)
+	workflowsHandler := handler.NewWorkflowsHandler(database.DB, rtr)
+	themesHandler := handler.NewThemesHandler(database.DB)
+	apiHandler := handler.NewAPIHandlerWithCache(rtr, recorder, webhookMgr, respCache, database.DB, memCache)
+	apiHandler.SetRAGManager(ragMgr)
+	apiHandler.SetPluginManager(pluginMgr)
+
+	// Register all routes
+	registerRoutes(engine, cfg, database, jwtMgr, memCache,
+		authHandler, settingsHandler, convoHandler, promptHandler,
+		usageHandler, adminHandler, oauthHandler, modelAliasHandler,
+		knowledgeHandler, pluginHandler, templatesHandler,
+		roomsHandler, workflowsHandler, themesHandler, apiHandler,
+	)
+
+	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      engine,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 120 * time.Second, // long for streaming
+		IdleTimeout:  60 * time.Second,
+	}
+	slog.Info("UniAPI starting", "addr", addr)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	slog.Info("shutting down")
+
+	// Graceful shutdown with 10s timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("forced shutdown", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("server stopped")
+}
+
+// registerRoutes wires all HTTP routes onto the engine.
+func registerRoutes(
+	engine *gin.Engine,
+	cfg *config.Config,
+	database *db.Database,
+	jwtMgr *auth.JWTManager,
+	memCache *cache.MemCache,
+	authHandler *handler.AuthHandler,
+	settingsHandler *handler.SettingsHandler,
+	convoHandler *handler.ConversationHandler,
+	promptHandler *handler.SystemPromptHandler,
+	usageHandler *handler.UsageHandler,
+	adminHandler *handler.AdminHandler,
+	oauthHandler *handler.OAuthHandler,
+	modelAliasHandler *handler.ModelAliasHandler,
+	knowledgeHandler *handler.KnowledgeHandler,
+	pluginHandler *handler.PluginHandler,
+	templatesHandler *handler.TemplatesHandler,
+	roomsHandler *handler.RoomsHandler,
+	workflowsHandler *handler.WorkflowsHandler,
+	themesHandler *handler.ThemesHandler,
+	apiHandler *handler.APIHandler,
+) {
 	loginLimiter := handler.RateLimitMiddleware(memCache, 10, 1*time.Minute) // 10 attempts per minute
+
+	// Public auth routes
 	api := engine.Group("/api")
 	api.GET("/status", authHandler.Status)
 	api.POST("/setup", loginLimiter, authHandler.Setup)
 	api.POST("/login", loginLimiter, authHandler.Login)
 	api.POST("/logout", authHandler.Logout)
 
-	// Protected auth routes
+	// Protected routes (JWT required)
 	apiAuth := api.Group("")
 	apiAuth.Use(handler.JWTAuthMiddleware(jwtMgr))
 	apiAuth.GET("/me", authHandler.Me)
-
-	// Settings handler (providers, users, API keys)
-	settingsHandler := handler.NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database, auditLogger, registerAccount, rtr)
-
-	// Conversation handler
-	convoHandler := handler.NewConversationHandler(convoRepo, rtr, auditLogger)
-
-	// System prompt handler
-	systemPromptRepo := repo.NewSystemPromptRepo(database)
-	promptHandler := handler.NewSystemPromptHandler(systemPromptRepo)
-
-	// Usage handler
-	usageHandler := handler.NewUsageHandler(database, recorder, auditLogger)
-
-	// Admin handler
-	adminHandler := handler.NewAdminHandler(database, convoRepo, systemPromptRepo, auditLogger)
 
 	// Provider management (admin only)
 	apiAuth.GET("/providers", settingsHandler.ListProviders)
@@ -360,44 +428,36 @@ func main() {
 	apiAuth.GET("/usage/analytics", usageHandler.UsageAnalytics)
 
 	// OAuth routes
-	oauthHandler := handler.NewOAuthHandler(oauthMgr, rtr, registerAccount, auditLogger)
-	oauthHandler.SetWebhookManager(webhookMgr)
 	oauthGroup := engine.Group("/api/oauth")
 	oauthGroup.GET("/callback/:provider", oauthHandler.Callback) // NO auth — uses state token
-
 	oauthAuth := oauthGroup.Group("")
 	oauthAuth.Use(handler.JWTAuthMiddleware(jwtMgr))
 	oauthAuth.GET("/providers", oauthHandler.ListProviders)
 	oauthAuth.GET("/accounts", oauthHandler.ListAccounts)
 	oauthAuth.DELETE("/accounts/:id", oauthHandler.UnbindAccount)
 	oauthAuth.POST("/accounts/:id/reauth", oauthHandler.Reauth)
-
 	// Bind routes under /bind/:provider to avoid Gin wildcard conflicts
 	bindGroup := oauthAuth.Group("/bind/:provider")
 	bindGroup.GET("/authorize", oauthHandler.Authorize)
 	bindGroup.POST("/session-token", oauthHandler.BindSessionToken)
 
-	// Model alias handler
-	modelAliasHandler := handler.NewModelAliasHandlerWithCache(database.DB, memCache)
+	// Model aliases
 	apiAuth.GET("/model-aliases", modelAliasHandler.ListModelAliases)
 	apiAuth.POST("/model-aliases", modelAliasHandler.CreateModelAlias)
 	apiAuth.DELETE("/model-aliases/:alias", modelAliasHandler.DeleteModelAlias)
 
-	// Knowledge base routes
-	knowledgeHandler := handler.NewKnowledgeHandler(ragMgr)
+	// Knowledge base
 	apiAuth.POST("/knowledge", knowledgeHandler.Upload)
 	apiAuth.GET("/knowledge", knowledgeHandler.List)
 	apiAuth.DELETE("/knowledge/:id", knowledgeHandler.Delete)
 
-	// Plugin routes
-	pluginHandler := handler.NewPluginHandler(pluginMgr)
+	// Plugins
 	apiAuth.GET("/plugins", pluginHandler.List)
 	apiAuth.POST("/plugins", pluginHandler.Register)
 	apiAuth.DELETE("/plugins/:id", pluginHandler.Delete)
 	apiAuth.POST("/plugins/:id/test", pluginHandler.Test)
 
 	// Prompt templates
-	templatesHandler := handler.NewTemplatesHandler(database)
 	apiAuth.GET("/templates", templatesHandler.List)
 	apiAuth.POST("/templates", templatesHandler.Create)
 	apiAuth.PUT("/templates/:id", templatesHandler.Update)
@@ -408,8 +468,7 @@ func main() {
 	apiAuth.GET("/export", adminHandler.ExportUserData)
 	apiAuth.POST("/import", adminHandler.ImportUserData)
 
-	// Chat rooms routes
-	roomsHandler := handler.NewRoomsHandler(database.DB, rtr)
+	// Chat rooms
 	apiAuth.POST("/rooms", roomsHandler.Create)
 	apiAuth.GET("/rooms", roomsHandler.List)
 	apiAuth.POST("/rooms/:id/join", roomsHandler.Join)
@@ -419,28 +478,23 @@ func main() {
 	apiAuth.GET("/rooms/:id/members", roomsHandler.GetMembers)
 	apiAuth.GET("/rooms/:id/stream", roomsHandler.StreamRoom)
 
-	// Workflows routes
-	workflowsHandler := handler.NewWorkflowsHandler(database.DB, rtr)
+	// Workflows
 	apiAuth.GET("/workflows", workflowsHandler.List)
 	apiAuth.POST("/workflows", workflowsHandler.Create)
 	apiAuth.PUT("/workflows/:id", workflowsHandler.Update)
 	apiAuth.DELETE("/workflows/:id", workflowsHandler.Delete)
 	apiAuth.POST("/workflows/:id/run", workflowsHandler.Run)
 
-	// Themes routes
-	themesHandler := handler.NewThemesHandler(database.DB)
+	// Themes
 	apiAuth.GET("/themes", themesHandler.List)
 	apiAuth.POST("/themes", themesHandler.Create)
 	apiAuth.DELETE("/themes/:id", themesHandler.Delete)
 	apiAuth.PUT("/themes/:id/apply", themesHandler.Apply)
 
-	// API routes
-	apiHandler := handler.NewAPIHandlerWithCache(rtr, recorder, webhookMgr, respCache, database.DB, memCache)
-	apiHandler.SetRAGManager(ragMgr)
-	apiHandler.SetPluginManager(pluginMgr)
+	// OpenAI-compatible API (/v1)
+	apiLimiter := handler.RateLimitMiddleware(memCache, 60, 1*time.Minute) // 60 req/min per IP
 	v1 := engine.Group("/v1")
 	v1.Use(handler.APIKeyAuthMiddleware(database.DB, jwtMgr, memCache))
-	apiLimiter := handler.RateLimitMiddleware(memCache, 60, 1*time.Minute) // 60 req/min per IP
 	v1.Use(apiLimiter)
 	v1.POST("/chat/completions", apiHandler.ChatCompletions)
 	v1.GET("/models", apiHandler.ListModels)
@@ -449,7 +503,7 @@ func main() {
 	// Health
 	engine.GET("/health", func(c *gin.Context) {
 		dbOK := database.DB.Ping() == nil
-		modelCount := len(rtr.AllModels())
+		modelCount := apiHandler.RouterModelCount()
 
 		status := "ok"
 		code := 200
@@ -487,35 +541,4 @@ func main() {
 	apiAuth.GET("/backup", adminHandler.BackupDB)
 
 	web.RegisterFrontend(engine)
-
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	srv := &http.Server{
-		Addr:         addr,
-		Handler:      engine,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 120 * time.Second, // long for streaming
-		IdleTimeout:  60 * time.Second,
-	}
-	slog.Info("UniAPI starting", "addr", addr)
-	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("server", "error", err)
-			os.Exit(1)
-		}
-	}()
-
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	slog.Info("shutting down")
-
-	// Graceful shutdown with 10s timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		slog.Error("forced shutdown", "error", err)
-		os.Exit(1)
-	}
-	slog.Info("server stopped")
 }

@@ -53,7 +53,7 @@ func (h *RoomsHandler) Create(c *gin.Context) {
 	id := uuid.New().String()
 	_, err := h.db.Exec("INSERT INTO chat_rooms (id, name, created_by) VALUES (?,?,?)", id, req.Name, userID)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	// Auto-join creator
@@ -70,7 +70,7 @@ func (h *RoomsHandler) List(c *gin.Context) {
 		WHERE crm.user_id = ?
 		ORDER BY cr.created_at DESC`, userID)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	defer rows.Close()
@@ -111,7 +111,7 @@ func (h *RoomsHandler) GetMessages(c *gin.Context) {
 		SELECT id, room_id, COALESCE(user_id,''), username, role, content, COALESCE(model,''), created_at
 		FROM chat_room_messages WHERE room_id = ? ORDER BY created_at ASC LIMIT 100`, roomID)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	defer rows.Close()
@@ -290,7 +290,7 @@ func (h *RoomsHandler) GetMembers(c *gin.Context) {
 		JOIN users u ON u.id = crm.user_id
 		WHERE crm.room_id = ?`, roomID)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	defer rows.Close()

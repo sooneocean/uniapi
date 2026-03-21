@@ -125,7 +125,7 @@ func (h *OAuthHandler) BindSessionToken(c *gin.Context) {
 
 	acc, err := h.manager.BindSessionToken(providerName, userID, req.Token, req.Shared)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 
@@ -161,7 +161,7 @@ func (h *OAuthHandler) ListAccounts(c *gin.Context) {
 
 	accounts, err := h.manager.ListAccounts(userID)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 
@@ -229,7 +229,7 @@ func (h *OAuthHandler) Reauth(c *gin.Context) {
 		sessionHash := oauth.HashSession(token)
 		url, err := h.manager.AuthorizeURL(acc.OAuthProvider, userID, sessionHash, acc.OwnerUserID == "")
 		if err != nil {
-			serverError(c, "operation failed")
+			serverError(c, errOperationFailed)
 			return
 		}
 		c.JSON(200, gin.H{"action": "oauth", "authorize_url": url})

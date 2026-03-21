@@ -20,7 +20,7 @@ func (h *PluginHandler) List(c *gin.Context) {
 	userID := mustUserID(c)
 	plugins, err := h.mgr.List(userID)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	if plugins == nil {
@@ -52,7 +52,7 @@ func (h *PluginHandler) Register(c *gin.Context) {
 	}
 	p, err := h.mgr.Register(userID, req.Name, req.Description, req.Endpoint, req.Method, req.Headers, req.InputSchema, req.Shared)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	c.JSON(http.StatusCreated, p)
@@ -62,7 +62,7 @@ func (h *PluginHandler) Delete(c *gin.Context) {
 	userID := mustUserID(c)
 	id := c.Param("id")
 	if err := h.mgr.Delete(id, userID); err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	c.Status(http.StatusNoContent)

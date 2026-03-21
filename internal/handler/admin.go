@@ -55,7 +55,7 @@ func (h *AdminHandler) GetAuditLog(c *gin.Context) {
 	}
 	entries, total, err := h.audit.List(limit, offset)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	if entries == nil {

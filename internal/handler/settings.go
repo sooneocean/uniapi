@@ -54,7 +54,7 @@ func (h *SettingsHandler) ListProviders(c *gin.Context) {
 	}
 	accounts, err := h.accountRepo.ListAll()
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	out := make([]gin.H, len(accounts))
@@ -91,7 +91,7 @@ func (h *SettingsHandler) AddProvider(c *gin.Context) {
 		return
 	}
 	if len(req.Label) > 100 {
-		badRequest(c, "label too long")
+		badRequest(c, errLabelTooLong)
 		return
 	}
 	maxConc := req.MaxConcurrent
@@ -100,7 +100,7 @@ func (h *SettingsHandler) AddProvider(c *gin.Context) {
 	}
 	account, err := h.accountRepo.Create(req.Provider, req.Label, req.APIKey, req.Models, maxConc, false)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 
@@ -141,7 +141,7 @@ func (h *SettingsHandler) DeleteProvider(c *gin.Context) {
 		return
 	}
 	if err := h.accountRepo.Delete(id); err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 
@@ -167,7 +167,7 @@ func (h *SettingsHandler) ListUsers(c *gin.Context) {
 	}
 	users, err := h.userRepo.List()
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	out := make([]gin.H, len(users))
@@ -198,7 +198,7 @@ func (h *SettingsHandler) CreateUser(c *gin.Context) {
 		return
 	}
 	if len(req.Username) > 100 {
-		badRequest(c, "username too long")
+		badRequest(c, errUsernameTooLong)
 		return
 	}
 	if err := validatePassword(req.Password); err != nil {
@@ -250,7 +250,7 @@ func (h *SettingsHandler) UpdateUserQuotas(c *gin.Context) {
 		return
 	}
 	if err := h.userRepo.UpdateQuotas(id, req.DailyTokenLimit, req.DailyCostLimit, req.MonthlyCostLimit); err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	success(c, gin.H{"ok": true})
@@ -288,7 +288,7 @@ func (h *SettingsHandler) DeleteUser(c *gin.Context) {
 func (h *SettingsHandler) ListAPIKeys(c *gin.Context) {
 	userIDVal, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": "not authenticated"}})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": errNotAuthenticated}})
 		return
 	}
 	userID, ok := userIDVal.(string)
@@ -301,7 +301,7 @@ func (h *SettingsHandler) ListAPIKeys(c *gin.Context) {
 		userID,
 	)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	defer rows.Close()
@@ -316,7 +316,7 @@ func (h *SettingsHandler) ListAPIKeys(c *gin.Context) {
 		var k keyItem
 		var expiresAt *time.Time
 		if err := rows.Scan(&k.ID, &k.Label, &k.CreatedAt, &expiresAt); err != nil {
-			serverError(c, "operation failed")
+			serverError(c, errOperationFailed)
 			return
 		}
 		k.ExpiresAt = expiresAt
@@ -335,7 +335,7 @@ type createAPIKeyRequest struct {
 func (h *SettingsHandler) CreateAPIKey(c *gin.Context) {
 	userIDVal, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": "not authenticated"}})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": errNotAuthenticated}})
 		return
 	}
 	userID, ok := userIDVal.(string)
@@ -361,7 +361,7 @@ func (h *SettingsHandler) CreateAPIKey(c *gin.Context) {
 		id, userID, hash, req.Label, now,
 	)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 
@@ -375,7 +375,7 @@ func (h *SettingsHandler) CreateAPIKey(c *gin.Context) {
 func (h *SettingsHandler) DeleteAPIKey(c *gin.Context) {
 	userIDVal, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": "not authenticated"}})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": errNotAuthenticated}})
 		return
 	}
 	userID, ok := userIDVal.(string)
@@ -389,7 +389,7 @@ func (h *SettingsHandler) DeleteAPIKey(c *gin.Context) {
 		id, userID,
 	)
 	if err != nil {
-		serverError(c, "operation failed")
+		serverError(c, errOperationFailed)
 		return
 	}
 	n, _ := result.RowsAffected()
