@@ -3,6 +3,20 @@ import type { ModelInfo } from '../types';
 
 const api = axios.create({ baseURL: '', withCredentials: true });
 
+// Read CSRF token from cookie and set on all mutating requests
+function getCSRFToken(): string {
+  const match = document.cookie.match(/csrf_token=([^;]+)/);
+  return match ? match[1] : '';
+}
+
+// Add request interceptor
+api.interceptors.request.use((config) => {
+  if (config.method && ['post', 'put', 'delete', 'patch'].includes(config.method)) {
+    config.headers['X-CSRF-Token'] = getCSRFToken();
+  }
+  return config;
+});
+
 export async function fetchModels(): Promise<ModelInfo[]> {
   const resp = await api.get('/v1/models');
   return resp.data.data;
@@ -30,7 +44,10 @@ export async function sendMessageStream(
 ): Promise<void> {
   const resp = await fetch('/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': getCSRFToken(),
+    },
     credentials: 'include',
     body: JSON.stringify({ model, messages, stream: true }),
   });

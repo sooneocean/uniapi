@@ -237,7 +237,8 @@ func main() {
 	engine.Use(gin.Recovery())
 	engine.Use(handler.RequestIDMiddleware())
 	engine.Use(handler.RequestLogMiddleware())
-	engine.Use(handler.CORSMiddleware())
+	engine.Use(handler.CORSMiddleware(cfg.Server.CORSOrigins))
+	engine.Use(handler.CSRFMiddleware())
 	engine.Use(handler.MetricsMiddleware())
 
 	// Auth routes
@@ -313,12 +314,22 @@ func main() {
 
 	// Health
 	engine.GET("/health", func(c *gin.Context) {
-		if err := database.DB.Ping(); err != nil {
-			slog.Error("health check failed", "error", err)
-			c.JSON(503, gin.H{"status": "unhealthy", "db": "disconnected"})
-			return
+		dbOK := database.DB.Ping() == nil
+		modelCount := len(rtr.AllModels())
+
+		status := "ok"
+		code := 200
+		if !dbOK {
+			status = "unhealthy"
+			code = 503
 		}
-		c.JSON(200, gin.H{"status": "ok", "db": "connected"})
+
+		c.JSON(code, gin.H{
+			"status":    status,
+			"db":        map[bool]string{true: "connected", false: "disconnected"}[dbOK],
+			"models":    modelCount,
+			"providers": len(cfg.Providers),
+		})
 	})
 
 	// Prometheus metrics (admin only)

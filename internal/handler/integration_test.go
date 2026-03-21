@@ -52,7 +52,7 @@ func setupIntegration(t *testing.T) (*gin.Engine, *db.Database, *auth.JWTManager
 
 	// Build engine
 	engine := gin.New()
-	engine.Use(CORSMiddleware())
+	engine.Use(CORSMiddleware(nil))
 
 	// Auth routes
 	authHandler := NewAuthHandler(userRepo, jwtMgr, database, nil) // nil audit for tests

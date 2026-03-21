@@ -41,31 +41,44 @@ func RateLimitMiddleware(mc *cache.MemCache, maxRequests int, window time.Durati
     }
 }
 
-func CORSMiddleware() gin.HandlerFunc {
-    return func(c *gin.Context) {
-        origin := c.GetHeader("Origin")
-        path := c.Request.URL.Path
+func CORSMiddleware(allowedOrigins []string) gin.HandlerFunc {
+	originSet := make(map[string]bool)
+	for _, o := range allowedOrigins {
+		originSet[o] = true
+	}
 
-        if strings.HasPrefix(path, "/v1/") {
-            // API routes: permissive CORS, no credentials (uses Authorization header)
-            if origin != "" {
-                c.Header("Access-Control-Allow-Origin", "*")
-            }
-        } else if origin != "" {
-            // /api/* routes: only allow same-origin (cookie-based auth)
-            // In production, check against configured base_url
-            c.Header("Access-Control-Allow-Origin", origin)
-            c.Header("Access-Control-Allow-Credentials", "true")
-        }
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		path := c.Request.URL.Path
 
-        c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        if c.Request.Method == "OPTIONS" {
-            c.AbortWithStatus(204)
-            return
-        }
-        c.Next()
-    }
+		if strings.HasPrefix(path, "/v1/") {
+			// API routes: permissive (uses Authorization header, not cookies)
+			if origin != "" {
+				c.Header("Access-Control-Allow-Origin", "*")
+			}
+		} else if origin != "" {
+			// /api/* routes: check allowlist or allow same-origin
+			if len(originSet) > 0 {
+				if originSet[origin] {
+					c.Header("Access-Control-Allow-Origin", origin)
+					c.Header("Access-Control-Allow-Credentials", "true")
+				}
+				// else: no CORS headers = browser blocks
+			} else {
+				// No allowlist configured: reflect origin (same behavior as before for backward compat)
+				c.Header("Access-Control-Allow-Origin", origin)
+				c.Header("Access-Control-Allow-Credentials", "true")
+			}
+		}
+
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	}
 }
 
 func ExtractBearerToken(c *gin.Context) string {
