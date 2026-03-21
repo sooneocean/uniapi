@@ -25,6 +25,7 @@ import (
 	"github.com/sooneocean/uniapi/internal/webhook"
 )
 
+// APIHandler handles chat completion and related API endpoints.
 type APIHandler struct {
 	router      *router.Router
 	recorder    *usage.Recorder
@@ -38,6 +39,7 @@ type APIHandler struct {
 	quotaEngine *quota.Engine
 }
 
+// SetRAGManager wires a RAG knowledge base manager into the handler.
 func (h *APIHandler) SetRAGManager(m *rag.Manager) {
 	h.ragMgr = m
 }
@@ -47,6 +49,7 @@ func (h *APIHandler) SetQuotaEngine(e *quota.Engine) {
 	h.quotaEngine = e
 }
 
+// SetPluginManager wires the plugin manager into the chat handler.
 func (h *APIHandler) SetPluginManager(m *plugin.Manager) {
 	h.pluginMgr = m
 }
@@ -56,14 +59,17 @@ func (h *APIHandler) RouterModelCount() int {
 	return len(h.router.AllModels())
 }
 
+// NewAPIHandler creates a minimal APIHandler with just a router and usage recorder.
 func NewAPIHandler(r *router.Router, rec *usage.Recorder) *APIHandler {
 	return &APIHandler{router: r, recorder: rec}
 }
 
+// NewAPIHandlerFull creates an APIHandler with webhook and response cache support.
 func NewAPIHandlerFull(r *router.Router, rec *usage.Recorder, webhookMgr *webhook.Manager, respCache *ResponseCache, db *sql.DB) *APIHandler {
 	return &APIHandler{router: r, recorder: rec, webhookMgr: webhookMgr, respCache: respCache, db: db}
 }
 
+// NewAPIHandlerWithCache creates a fully-featured APIHandler including alias resolution and memory compaction.
 func NewAPIHandlerWithCache(r *router.Router, rec *usage.Recorder, webhookMgr *webhook.Manager, respCache *ResponseCache, db *sql.DB, mc *cache.MemCache) *APIHandler {
 	return &APIHandler{router: r, recorder: rec, webhookMgr: webhookMgr, respCache: respCache, db: db, aliasCache: mc, memMgr: memory.NewManager(8000)}
 }
@@ -75,8 +81,8 @@ type chatToolFunction struct {
 }
 
 type chatTool struct {
-	Type     string            `json:"type"`
-	Function chatToolFunction  `json:"function"`
+	Type     string           `json:"type"`
+	Function chatToolFunction `json:"function"`
 }
 
 type chatCompletionRequest struct {
@@ -96,6 +102,7 @@ type chatMsg struct {
 	ToolCalls  interface{} `json:"tool_calls,omitempty"`
 }
 
+// parseContentBlocks converts raw message content (string or array) to provider ContentBlocks.
 func parseContentBlocks(raw interface{}) []provider.ContentBlock {
 	switch v := raw.(type) {
 	case string:
@@ -157,19 +164,19 @@ func (h *APIHandler) resolveAlias(model, userID string) string {
 	return model
 }
 
-func (h *APIHandler) ChatCompletions(c *gin.Context) {
+// parseRequest binds and validates the incoming chat completion request, converting
+// OpenAI-format messages to provider messages. Returns the request and provider messages.
+func (h *APIHandler) parseRequest(c *gin.Context) (*chatCompletionRequest, []provider.Message, error) {
 	var req chatCompletionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
-		return
+		return nil, nil, err
 	}
 	messages := make([]provider.Message, len(req.Messages))
 	for i, m := range req.Messages {
 		// Handle tool role messages (tool results)
 		if m.Role == "tool" {
 			content := ""
-			switch v := m.Content.(type) {
-			case string:
+			if v, ok := m.Content.(string); ok {
 				content = v
 			}
 			toolResult := &struct {
@@ -191,28 +198,20 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 		// Handle assistant messages with tool_calls
 		if m.Role == "assistant" && m.ToolCalls != nil {
 			var blocks []provider.ContentBlock
-			// Parse text content if present
 			if v, ok := m.Content.(string); ok && v != "" {
 				blocks = append(blocks, provider.ContentBlock{Type: "text", Text: v})
 			}
-			// Parse tool_calls
 			if tcList, ok := m.ToolCalls.([]interface{}); ok {
 				for _, tc := range tcList {
 					if tcMap, ok := tc.(map[string]interface{}); ok {
 						id, _ := tcMap["id"].(string)
-					tcType, _ := tcMap["type"].(string)
-					call := &provider.ToolCall{
-						ID:   id,
-						Type: tcType,
-					}
-					if fn, ok := tcMap["function"].(map[string]interface{}); ok {
-						call.Function.Name, _ = fn["name"].(string)
-						call.Function.Arguments, _ = fn["arguments"].(string)
-					}
-						blocks = append(blocks, provider.ContentBlock{
-							Type:    "tool_use",
-							ToolUse: call,
-						})
+						tcType, _ := tcMap["type"].(string)
+						call := &provider.ToolCall{ID: id, Type: tcType}
+						if fn, ok := tcMap["function"].(map[string]interface{}); ok {
+							call.Function.Name, _ = fn["name"].(string)
+							call.Function.Arguments, _ = fn["arguments"].(string)
+						}
+						blocks = append(blocks, provider.ContentBlock{Type: "tool_use", ToolUse: call})
 					}
 				}
 			}
@@ -220,21 +219,32 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 			continue
 		}
 		if v, ok := m.Content.(string); ok && len(v) > 1_000_000 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "message content too large"}})
-			return
+			return nil, nil, fmt.Errorf("message content too large")
 		}
 		messages[i] = provider.Message{Role: m.Role, Content: parseContentBlocks(m.Content)}
 	}
-	userID := ""
+	return &req, messages, nil
+}
+
+// getUserID extracts the authenticated user ID from the gin context.
+func (h *APIHandler) getUserID(c *gin.Context) string {
 	if uid, exists := c.Get("user_id"); exists {
 		if u, ok := uid.(string); ok {
-			userID = u
+			return u
 		}
 	}
+	return ""
+}
 
+// buildChatRequest constructs the provider.ChatRequest from a parsed API request.
+func (h *APIHandler) buildChatRequest(req *chatCompletionRequest, messages []provider.Message, userID string) *provider.ChatRequest {
 	chatReq := &provider.ChatRequest{
-		Model: req.Model, Messages: messages, MaxTokens: req.MaxTokens,
-		Temperature: req.Temperature, Stream: req.Stream, Provider: req.Provider,
+		Model:       req.Model,
+		Messages:    messages,
+		MaxTokens:   req.MaxTokens,
+		Temperature: req.Temperature,
+		Stream:      req.Stream,
+		Provider:    req.Provider,
 	}
 	if len(req.Tools) > 0 {
 		chatReq.Tools = make([]provider.Tool, len(req.Tools))
@@ -246,36 +256,18 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 			}
 		}
 	}
-
-	// Resolve model alias
 	chatReq.Model = h.resolveAlias(chatReq.Model, userID)
+	return chatReq
+}
 
-	// Quota check
-	if userID != "" {
-		if h.quotaEngine != nil {
-			result := h.quotaEngine.Check(userID)
-			if !result.Allowed {
-				c.JSON(429, gin.H{"error": gin.H{"type": "quota_exceeded", "message": result.Message}})
-				return
-			}
-			if result.Warning {
-				c.Header("X-Quota-Warning", result.Message)
-			}
-		} else if err := h.checkQuota(userID); err != nil {
-			c.JSON(429, gin.H{"error": gin.H{"type": "quota_exceeded", "message": err.Error()}})
-			return
-		}
-	}
-
-	// Memory compaction
+// enrichChatRequest injects memory compaction, RAG context, and plugin tools.
+func (h *APIHandler) enrichChatRequest(c *gin.Context, chatReq *provider.ChatRequest, userID string) {
 	if h.memMgr != nil {
 		chatReq.Messages = h.memMgr.CompactMessages(c.Request.Context(), chatReq.Messages,
 			func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 				return h.router.Route(ctx, req, userID)
 			})
 	}
-
-	// RAG: inject knowledge base context
 	if h.ragMgr != nil {
 		queryText := ""
 		for _, m := range chatReq.Messages {
@@ -287,28 +279,25 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 		if queryText != "" {
 			chunks, _ := h.ragMgr.Search(userID, queryText, 3)
 			if len(chunks) > 0 {
-				context := "Relevant context from knowledge base:\n\n"
+				ragContext := "Relevant context from knowledge base:\n\n"
 				for _, ch := range chunks {
-					context += ch.Content + "\n---\n"
+					ragContext += ch.Content + "\n---\n"
 				}
-				sysMsg := provider.Message{Role: "system", Content: []provider.ContentBlock{{Type: "text", Text: context}}}
+				sysMsg := provider.Message{Role: "system", Content: []provider.ContentBlock{{Type: "text", Text: ragContext}}}
 				chatReq.Messages = append([]provider.Message{sysMsg}, chatReq.Messages...)
 			}
 		}
 	}
-
-	// Plugins: inject as tools
 	if h.pluginMgr != nil {
 		pluginTools, _ := h.pluginMgr.ToTools(userID)
 		chatReq.Tools = append(chatReq.Tools, pluginTools...)
 	}
+}
 
-	if req.Stream {
-		h.handleStream(c, chatReq)
-		return
-	}
-
-	// Check response cache (non-streaming only)
+// handleNonStream executes a non-streaming chat request, checks the response cache,
+// records usage, and returns the OpenAI-format JSON response.
+func (h *APIHandler) handleNonStream(c *gin.Context, chatReq *provider.ChatRequest, userID string) {
+	// Check response cache
 	if h.respCache != nil {
 		cacheKey := h.respCache.Key(chatReq.Model, chatReq.Messages)
 		if cached, ok := h.respCache.Get(cacheKey); ok {
@@ -316,14 +305,13 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 				"id": "chatcmpl-" + uuid.New().String()[:8], "object": "chat.completion",
 				"created": time.Now().Unix(), "model": cached.Model,
 				"choices": []gin.H{{"index": 0, "message": gin.H{"role": "assistant", "content": cached.Content}, "finish_reason": "stop"}},
-				"usage": gin.H{"prompt_tokens": cached.TokensIn, "completion_tokens": cached.TokensOut, "total_tokens": cached.TokensIn + cached.TokensOut},
+				"usage":   gin.H{"prompt_tokens": cached.TokensIn, "completion_tokens": cached.TokensOut, "total_tokens": cached.TokensIn + cached.TokensOut},
 				"x_uniapi": gin.H{"cached": true},
 			})
 			return
 		}
 	}
 
-	// Enforce maximum request timeout to prevent hung connections
 	reqCtx, reqCancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
 	defer reqCancel()
 
@@ -331,15 +319,16 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 	resp, err := h.router.Route(reqCtx, chatReq, userID)
 	latency := time.Since(start)
 	if err != nil {
-		metrics.ProviderRequestsTotal.WithLabelValues(req.Model, req.Model, "error").Inc()
+		metrics.ProviderRequestsTotal.WithLabelValues(chatReq.Model, chatReq.Model, "error").Inc()
 		if h.webhookMgr != nil {
 			h.webhookMgr.Fire("provider_error", map[string]interface{}{
-				"model": req.Model, "error": err.Error(), "user_id": userID,
+				"model": chatReq.Model, "error": err.Error(), "user_id": userID,
 			})
 		}
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "api_error", "message": err.Error()}})
 		return
 	}
+
 	content := ""
 	for _, block := range resp.Content {
 		if block.Type == "text" {
@@ -347,7 +336,6 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 		}
 	}
 
-	// Store in response cache (only when no tool calls)
 	if h.respCache != nil && len(resp.ToolCalls) == 0 {
 		cacheKey := h.respCache.Key(chatReq.Model, chatReq.Messages)
 		h.respCache.Set(cacheKey, &CachedResponse{
@@ -358,21 +346,16 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 		})
 	}
 
-	if h.recorder != nil {
-		if uid, exists := c.Get("user_id"); exists {
-			if userID, ok := uid.(string); ok {
-				cost := usage.CalculateCost(resp.Model, resp.TokensIn, resp.TokensOut)
-				go h.recorder.RecordUsage(usage.UsageRecord{ //nolint:errcheck
-					UserID:    userID,
-					Model:     resp.Model,
-					Provider:  "",
-					TokensIn:  resp.TokensIn,
-					TokensOut: resp.TokensOut,
-					Cost:      cost,
-					LatencyMs: int(latency.Milliseconds()),
-				})
-			}
-		}
+	if h.recorder != nil && userID != "" {
+		cost := usage.CalculateCost(resp.Model, resp.TokensIn, resp.TokensOut)
+		go h.recorder.RecordUsage(usage.UsageRecord{ //nolint:errcheck
+			UserID:    userID,
+			Model:     resp.Model,
+			TokensIn:  resp.TokensIn,
+			TokensOut: resp.TokensOut,
+			Cost:      cost,
+			LatencyMs: int(latency.Milliseconds()),
+		})
 	}
 
 	metrics.ProviderRequestsTotal.WithLabelValues(resp.Model, resp.Model, "success").Inc()
@@ -392,9 +375,37 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 		"id": "chatcmpl-" + uuid.New().String()[:8], "object": "chat.completion",
 		"created": time.Now().Unix(), "model": resp.Model,
 		"choices": []gin.H{{"index": 0, "message": message, "finish_reason": finishReason}},
-		"usage": gin.H{"prompt_tokens": resp.TokensIn, "completion_tokens": resp.TokensOut, "total_tokens": resp.TokensIn + resp.TokensOut},
+		"usage":   gin.H{"prompt_tokens": resp.TokensIn, "completion_tokens": resp.TokensOut, "total_tokens": resp.TokensIn + resp.TokensOut},
 		"x_uniapi": gin.H{"latency_ms": latency.Milliseconds()},
 	})
+}
+
+// ChatCompletions is the main handler for POST /v1/chat/completions.
+func (h *APIHandler) ChatCompletions(c *gin.Context) {
+	req, messages, err := h.parseRequest(c)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+
+	userID := h.getUserID(c)
+
+	if blocked, warn := h.checkQuota(userID); blocked != nil {
+		tooManyRequests(c, blocked.Error())
+		return
+	} else if warn != "" {
+		c.Header("X-Quota-Warning", warn)
+	}
+
+	chatReq := h.buildChatRequest(req, messages, userID)
+	h.enrichChatRequest(c, chatReq, userID)
+
+	if req.Stream {
+		h.handleStream(c, chatReq)
+		return
+	}
+
+	h.handleNonStream(c, chatReq, userID)
 }
 
 // streamChunk is the SSE JSON payload for a single streaming chunk.
@@ -414,12 +425,8 @@ type streamDelta struct {
 }
 
 func (h *APIHandler) handleStream(c *gin.Context, req *provider.ChatRequest) {
-	userID := ""
-	if uid, exists := c.Get("user_id"); exists {
-		if u, ok := uid.(string); ok {
-			userID = u
-		}
-	}
+	userID := h.getUserID(c)
+
 	// Enforce maximum streaming timeout
 	streamCtx, streamCancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
 	defer streamCancel()
@@ -451,7 +458,6 @@ func (h *APIHandler) handleStream(c *gin.Context, req *provider.ChatRequest) {
 	for {
 		select {
 		case <-ctx.Done():
-			// Client disconnected
 			stream.Close()
 			return
 		default:
@@ -491,28 +497,38 @@ func (h *APIHandler) handleStream(c *gin.Context, req *provider.ChatRequest) {
 		}
 	}
 
-	if h.recorder != nil {
-		if uid, exists := c.Get("user_id"); exists {
-			if userID, ok := uid.(string); ok {
-				latency := time.Since(start)
-				cost := usage.CalculateCost(model, tokensIn, tokensOut)
-				go h.recorder.RecordUsage(usage.UsageRecord{ //nolint:errcheck
-					UserID:    userID,
-					Model:     model,
-					Provider:  "",
-					TokensIn:  tokensIn,
-					TokensOut: tokensOut,
-					Cost:      cost,
-					LatencyMs: int(latency.Milliseconds()),
-				})
-			}
-		}
+	if h.recorder != nil && userID != "" {
+		latency := time.Since(start)
+		cost := usage.CalculateCost(model, tokensIn, tokensOut)
+		go h.recorder.RecordUsage(usage.UsageRecord{ //nolint:errcheck
+			UserID:    userID,
+			Model:     model,
+			TokensIn:  tokensIn,
+			TokensOut: tokensOut,
+			Cost:      cost,
+			LatencyMs: int(latency.Milliseconds()),
+		})
 	}
 }
 
-func (h *APIHandler) checkQuota(userID string) error {
+// checkQuota checks whether the user is allowed to make a request.
+// Returns (blockedErr, warningMsg). blockedErr is non-nil when the request must be rejected.
+func (h *APIHandler) checkQuota(userID string) (error, string) {
+	if userID == "" {
+		return nil, ""
+	}
+	if h.quotaEngine != nil {
+		result := h.quotaEngine.Check(userID)
+		if !result.Allowed {
+			return fmt.Errorf("%s", result.Message), ""
+		}
+		if result.Warning {
+			return nil, result.Message
+		}
+		return nil, ""
+	}
 	if h.db == nil {
-		return nil
+		return nil, ""
 	}
 	var dailyTokenLimit int
 	var dailyCostLimit, monthlyCostLimit float64
@@ -520,7 +536,7 @@ func (h *APIHandler) checkQuota(userID string) error {
 		"SELECT COALESCE(daily_token_limit,0), COALESCE(daily_cost_limit,0), COALESCE(monthly_cost_limit,0) FROM users WHERE id = ?", userID,
 	).Scan(&dailyTokenLimit, &dailyCostLimit, &monthlyCostLimit)
 	if err != nil {
-		return nil // no user = no limit
+		return nil, "" // no user = no limit
 	}
 
 	today := time.Now().Format("2006-01-02")
@@ -530,24 +546,24 @@ func (h *APIHandler) checkQuota(userID string) error {
 		var dailyTokens int
 		h.db.QueryRow("SELECT COALESCE(SUM(tokens_in + tokens_out), 0) FROM usage_daily WHERE user_id = ? AND date = ?", userID, today).Scan(&dailyTokens) //nolint:errcheck
 		if dailyTokens >= dailyTokenLimit {
-			return fmt.Errorf("daily token limit exceeded (%d/%d)", dailyTokens, dailyTokenLimit)
+			return fmt.Errorf("daily token limit exceeded (%d/%d)", dailyTokens, dailyTokenLimit), ""
 		}
 	}
 	if dailyCostLimit > 0 {
 		var dailyCost float64
 		h.db.QueryRow("SELECT COALESCE(SUM(cost), 0) FROM usage_daily WHERE user_id = ? AND date = ?", userID, today).Scan(&dailyCost) //nolint:errcheck
 		if dailyCost >= dailyCostLimit {
-			return fmt.Errorf("daily cost limit exceeded ($%.2f/$%.2f)", dailyCost, dailyCostLimit)
+			return fmt.Errorf("daily cost limit exceeded ($%.2f/$%.2f)", dailyCost, dailyCostLimit), ""
 		}
 	}
 	if monthlyCostLimit > 0 {
 		var monthlyCost float64
 		h.db.QueryRow("SELECT COALESCE(SUM(cost), 0) FROM usage_daily WHERE user_id = ? AND date >= ?", userID, monthStart).Scan(&monthlyCost) //nolint:errcheck
 		if monthlyCost >= monthlyCostLimit {
-			return fmt.Errorf("monthly cost limit exceeded ($%.2f/$%.2f)", monthlyCost, monthlyCostLimit)
+			return fmt.Errorf("monthly cost limit exceeded ($%.2f/$%.2f)", monthlyCost, monthlyCostLimit), ""
 		}
 	}
-	return nil
+	return nil, ""
 }
 
 // ResponseCache wraps a MemCache for caching chat completion responses.
@@ -557,6 +573,7 @@ type ResponseCache struct {
 	enabled bool
 }
 
+// NewResponseCache creates a ResponseCache backed by the given MemCache.
 func NewResponseCache(c *cache.MemCache, ttl time.Duration, enabled bool) *ResponseCache {
 	return &ResponseCache{cache: c, ttl: ttl, enabled: enabled}
 }
@@ -569,12 +586,14 @@ type CachedResponse struct {
 	TokensOut int    `json:"tokens_out"`
 }
 
+// Key returns a deterministic cache key for a model+messages pair.
 func (rc *ResponseCache) Key(model string, messages interface{}) string {
 	data, _ := json.Marshal(map[string]interface{}{"model": model, "messages": messages})
 	hash := sha256.Sum256(data)
 	return "resp:" + hex.EncodeToString(hash[:])
 }
 
+// Get retrieves a cached response. Returns (nil, false) if cache is disabled or not found.
 func (rc *ResponseCache) Get(key string) (*CachedResponse, bool) {
 	if !rc.enabled {
 		return nil, false
@@ -587,6 +606,7 @@ func (rc *ResponseCache) Get(key string) (*CachedResponse, bool) {
 	return resp, ok
 }
 
+// Set stores a response in the cache if caching is enabled.
 func (rc *ResponseCache) Set(key string, resp *CachedResponse) {
 	if !rc.enabled {
 		return

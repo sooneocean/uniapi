@@ -8,10 +8,12 @@ import (
 	"github.com/sooneocean/uniapi/internal/provider"
 )
 
+// Manager trims or summarises conversation history when it exceeds a token budget.
 type Manager struct {
 	maxTokens int // default 8000 — leave room for response
 }
 
+// NewManager creates a memory Manager with the given token budget (default 8000).
 func NewManager(maxTokens int) *Manager {
 	if maxTokens <= 0 {
 		maxTokens = 8000

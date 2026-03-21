@@ -9,6 +9,7 @@ import (
 	"github.com/sooneocean/uniapi/internal/provider"
 )
 
+// Step is a single model invocation within a multi-step prompt workflow.
 type Step struct {
 	Name         string `json:"name"`
 	Model        string `json:"model"`
@@ -17,6 +18,7 @@ type Step struct {
 	MaxTokens    int    `json:"max_tokens"`
 }
 
+// Workflow is a named sequence of Steps that can be shared and executed against user input.
 type Workflow struct {
 	ID          string `json:"id"`
 	UserID      string `json:"user_id"`
@@ -27,6 +29,7 @@ type Workflow struct {
 	RunCount    int    `json:"run_count"`
 }
 
+// StepResult holds the output and metrics for a single executed workflow step.
 type StepResult struct {
 	StepName  string `json:"step_name"`
 	Model     string `json:"model"`
@@ -36,6 +39,7 @@ type StepResult struct {
 	LatencyMs int64  `json:"latency_ms"`
 }
 
+// RunResult is the complete output of a workflow execution, including per-step results.
 type RunResult struct {
 	WorkflowName string       `json:"workflow_name"`
 	Steps        []StepResult `json:"steps"`
@@ -43,6 +47,7 @@ type RunResult struct {
 	TotalCost    float64      `json:"total_cost"`
 }
 
+// RouteFn is a routing callback that dispatches a chat request through the provider router.
 type RouteFn func(ctx context.Context, req *provider.ChatRequest, userID string) (*provider.ChatResponse, error)
 
 // Execute runs a workflow with the given input

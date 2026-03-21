@@ -11,6 +11,7 @@ import (
     "github.com/sooneocean/uniapi/internal/provider"
 )
 
+// Config controls routing strategy, retry behaviour, and failover attempts.
 type Config struct {
     Strategy         string
     MaxRetries       int
@@ -26,6 +27,7 @@ type account struct {
     needsReauth   bool
 }
 
+// Router handles request routing to provider accounts with load balancing and failover.
 type Router struct {
     mu         sync.RWMutex
     accounts   []*account
@@ -35,6 +37,7 @@ type Router struct {
     rrIndex    uint64
 }
 
+// New creates a Router backed by the given cache and configuration.
 func New(c *cache.MemCache, cfg Config) *Router {
     return &Router{cache: c, config: cfg, modelIndex: make(map[string][]*account)}
 }
@@ -49,10 +52,12 @@ func (r *Router) rebuildIndex() {
     }
 }
 
+// AddAccount registers a provider account available to all users.
 func (r *Router) AddAccount(id string, p provider.Provider, maxConcurrent int) {
     r.AddAccountWithOwner(id, p, maxConcurrent, "")
 }
 
+// AddAccountWithOwner registers a provider account restricted to a specific user when ownerUserID is non-empty.
 func (r *Router) AddAccountWithOwner(id string, p provider.Provider, maxConcurrent int, ownerUserID string) {
     r.mu.Lock()
     r.accounts = append(r.accounts, &account{
@@ -62,6 +67,7 @@ func (r *Router) AddAccountWithOwner(id string, p provider.Provider, maxConcurre
     r.mu.Unlock()
 }
 
+// Route sends a chat request to the best available provider account, with failover.
 func (r *Router) Route(ctx context.Context, req *provider.ChatRequest, userID ...string) (*provider.ChatResponse, error) {
     uid := ""
     if len(userID) > 0 {
@@ -159,6 +165,7 @@ func (r *Router) tryAccount(ctx context.Context, acc *account, req *provider.Cha
     return nil, lastErr
 }
 
+// RouteStream opens a streaming chat request to the best available provider account.
 func (r *Router) RouteStream(ctx context.Context, req *provider.ChatRequest, userID ...string) (provider.Stream, error) {
     uid := ""
     if len(userID) > 0 {
@@ -202,6 +209,7 @@ func (t *trackedStream) Close() error {
     return t.Stream.Close()
 }
 
+// AllModels returns a deduplicated list of all models served by registered accounts.
 func (r *Router) AllModels() []provider.Model {
     r.mu.RLock()
     defer r.mu.RUnlock()

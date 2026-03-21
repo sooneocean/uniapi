@@ -8,17 +8,20 @@ import (
 	"time"
 )
 
+// WebhookConfig defines a single webhook endpoint and its subscribed event types.
 type WebhookConfig struct {
 	URL    string   `mapstructure:"url"`
 	Events []string `mapstructure:"events"` // "provider_error", "quota_warning", "user_login", "account_bound"
 }
 
+// Event is the JSON payload delivered to a webhook endpoint.
 type Event struct {
 	Type      string      `json:"type"`
 	Timestamp string      `json:"timestamp"`
 	Data      interface{} `json:"data"`
 }
 
+// Manager dispatches events to registered webhook endpoints.
 type Manager struct {
 	hooks  []Hook
 	client *http.Client
@@ -29,6 +32,7 @@ type Hook struct {
 	Events map[string]bool
 }
 
+// NewManager creates a webhook Manager from a list of endpoint configurations.
 func NewManager(configs []WebhookConfig) *Manager {
 	hooks := make([]Hook, len(configs))
 	for i, c := range configs {

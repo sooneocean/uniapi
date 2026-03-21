@@ -4,35 +4,44 @@ All notable changes to UniAPI will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-21
+
 ### Added
 - Voice input via Web Speech API
 - File attachments (drag & drop code/text files)
+- Image paste for vision models
 - API Playground for interactive testing
-- Webhook notifications for provider errors, logins, account binding
-- Custom model aliases (e.g., "fast" → gpt-4o-mini)
-- Response caching for identical requests
+- Webhook notifications for provider errors, logins, account binding, and quota warnings
+- Custom model aliases (e.g., "fast" → gpt-4o-mini) with 5-minute cache
+- Response caching for identical non-streaming requests (configurable TTL)
 - LaTeX math rendering (KaTeX)
 - Mermaid diagram rendering
 - Conversation folders and pinning
-- Conversation sharing via public links
+- Conversation sharing via public read-only links
 - Streaming speed display (tok/s)
-- Model comparison mode (side-by-side)
-- PWA support (installable as app)
+- Model comparison mode (side-by-side responses)
+- PWA support (installable as desktop/mobile app)
 - Auto-generated conversation titles
-- Admin dashboard with system stats
-- Database backup download
+- Admin dashboard with system stats, user management, and audit log
+- Database backup download from admin panel
 - i18n support (English + Traditional Chinese)
-- Image paste for vision models
 - Conversation search
 - Code syntax highlighting with copy button
-- Dark/light theme toggle
-- Mobile responsive design
-- Keyboard shortcuts (Ctrl+K, Ctrl+N, etc.)
+- Dark/light theme toggle with persistent preference
+- Keyboard shortcuts (Ctrl+K, Ctrl+N, Ctrl+Enter, Ctrl+/, etc.)
 - Message edit and regenerate
-- Conversation export (Markdown, JSON)
-- System prompt presets
+- Conversation export (Markdown, JSON) and usage export (CSV)
+- System prompt presets / prompt templates
 - Sidebar conversation previews
 - Token estimation before sending
+- RAG knowledge base: document upload, keyword-based chunk retrieval, auto context injection
+- Prompt workflows: multi-step chained model calls with `{{input}}` / `{{step_N}}` placeholders
+- Chat rooms: multi-user rooms with `@ai` trigger and real-time SSE broadcast
+- Plugin system: register HTTP endpoints as model tools (shared or private)
+- Tool calling: full function calling support with tool result round-trip
+- Quota engine: per-user daily/monthly token and cost limits with configurable warning thresholds
+- Memory manager: automatic conversation summarisation when context exceeds token budget
+- Model comparison: simultaneous side-by-side responses from two different models
 
 ### Security
 - CSRF double-submit cookie protection
@@ -49,10 +58,10 @@ All notable changes to UniAPI will be documented in this file.
 - API key lookup cached (10min TTL)
 - Credential caching in provider closures (5min refresh)
 - Model alias resolution cached (5min TTL)
-- Streaming uses reusable JSON encoder
+- Streaming uses reusable JSON encoder (eliminates per-chunk allocation)
 - Router uses pre-built model→account index
 - Cache sweeper lock optimization (read-first, batch delete)
-- Usage recording batched (500ms/20 records)
+- Usage recording batched (500ms / 20 records)
 - 3 new composite DB indexes
 - Connection pool tuned (20 conns, 3s timeout)
 

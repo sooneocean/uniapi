@@ -1,5 +1,7 @@
 # UniAPI
 
+![CI](https://github.com/sooneocean/uniapi/actions/workflows/ci.yml/badge.svg)
+
 A zero-dependency, single-binary AI aggregation platform. Share AI subscriptions with your team through a unified chat interface.
 
 ## Features
@@ -7,14 +9,36 @@ A zero-dependency, single-binary AI aggregation platform. Share AI subscriptions
 - **Single Binary** — Download and run. No PostgreSQL, no Redis, no Docker required.
 - **Chat UI** — ChatGPT-style interface with model switching, streaming, markdown rendering, code highlighting
 - **Multi-Provider** — OpenAI, Claude, Gemini, DeepSeek, Mistral, Groq, Ollama, Together AI, and any OpenAI-compatible service
-- **Cost Splitting** — Token-level usage tracking with per-user breakdown and CSV export
-- **OAuth & Session Binding** — Connect AI accounts via OAuth or session tokens for automatic credential management
+- **Tool Calling** — Full function calling support; pass tools to any model that supports them
+- **RAG Knowledge Base** — Upload documents and auto-inject relevant context into prompts
+- **Prompt Workflows** — Chain multi-step model calls with `{{input}}` / `{{step_N}}` placeholders
+- **Chat Rooms** — Multi-user rooms with `@ai` trigger and real-time SSE broadcast
+- **Plugin System** — Register HTTP endpoints as model tools, shared or private
+- **Model Comparison** — Side-by-side responses from two models simultaneously
+- **Voice Input** — Web Speech API dictation
+- **File Attachments** — Drag-and-drop code and text files into messages
+- **API Playground** — Interactive in-browser API testing
+- **Webhooks** — POST notifications for provider errors, logins, account binding, quota warnings
+- **Model Aliases** — Map friendly names (e.g. `fast`) to real model IDs
+- **Response Caching** — Identical requests return cached responses instantly
+- **LaTeX / Mermaid** — KaTeX math rendering and Mermaid diagram rendering in chat
+- **Conversation Sharing** — Share conversations via public read-only links
+- **Streaming Speed** — Real-time tok/s display during generation
+- **Custom Themes** — Dark/light theme toggle with persistent preference
+- **Data Import/Export** — Export conversations as Markdown or JSON; CSV usage export
+- **User Quotas** — Per-user daily/monthly token and cost limits with warning thresholds
+- **Prompt Templates** — Save and reuse system prompt presets
+- **Auto-Title** — Conversations are automatically titled from the first message
+- **Admin Dashboard** — System stats, user management, audit log
+- **DB Backup** — One-click database backup download from the admin panel
+- **Cost Splitting** — Token-level usage tracking with per-user breakdown
+- **OAuth & Session Binding** — Connect AI accounts via OAuth or session tokens
 - **Provider Templates** — One-click setup for 8+ popular AI providers
-- **OpenAI-Compatible API** — Drop-in replacement for OpenAI API. Works with Cursor, Continue, ChatBox, etc.
+- **OpenAI-Compatible API** — Drop-in replacement for the OpenAI API. Works with Cursor, Continue, ChatBox, etc.
 - **Team Management** — Admin/member roles, shared and private accounts
-- **Secure** — AES-256-GCM encryption, JWT auth, bcrypt passwords, rate limiting
+- **Secure** — AES-256-GCM encryption, JWT auth, bcrypt passwords, CSRF protection, rate limiting
 - **Observable** — Prometheus metrics, structured JSON logging, audit trail
-- **Mobile Ready** — Responsive design with dark/light theme
+- **Mobile Ready** — Responsive design, PWA-installable
 
 ## Quick Start
 
@@ -88,6 +112,20 @@ storage:
 
 oauth:
   base_url: "https://your-domain.com"  # required for OAuth redirect URLs
+  openai:
+    client_id: "..."
+    client_secret: "..."
+  anthropic:
+    client_id: "..."
+    client_secret: "..."
+
+webhooks:
+  - url: "https://hooks.example.com/uniapi"
+    events: ["provider_error", "quota_warning", "user_login", "account_bound"]
+
+response_cache:
+  enabled: true
+  ttl: 5m
 ```
 
 Alternatively, configure everything through the web UI at Settings > Providers.
@@ -129,7 +167,7 @@ curl http://localhost:9000/v1/chat/completions \
 | POST | `/v1/chat/completions` | Chat completion (OpenAI format) |
 | GET | `/v1/models` | List available models |
 | GET | `/health` | Health check |
-| GET | `/metrics` | Prometheus metrics |
+| GET | `/metrics` | Prometheus metrics (admin only) |
 
 See [docs/API.md](docs/API.md) for the full API reference.
 
@@ -160,16 +198,44 @@ Set the base URL to your UniAPI instance:
 ```
 Single Go Binary (~20MB)
 ├── React Chat UI (embedded via go:embed)
+│   ├── Streaming chat with markdown, LaTeX, Mermaid, code highlighting
+│   ├── Model comparison, voice input, file attachments, API playground
+│   ├── Conversation folders, pinning, sharing, search, export
+│   └── Admin dashboard, usage charts, DB backup
 ├── OpenAI-Compatible API (/v1/*)
+│   ├── Chat completions (streaming + non-streaming)
+│   ├── Tool calling, response caching, model aliases
+│   └── RAG context injection, plugin tool injection
 ├── Provider Adapters (OpenAI, Anthropic, Gemini, + compatible)
-├── Router (round-robin, failover, per-user account binding)
-├── SQLite (users, conversations, usage, audit log)
-└── In-Memory Cache (rate limits, session state)
+│   └── OAuth & session token credential binding
+├── Router (round-robin / least-used, failover, per-user account binding)
+├── Feature Modules
+│   ├── RAG — document ingestion, keyword-based chunk retrieval
+│   ├── Workflows — multi-step chained prompt execution
+│   ├── Plugins — HTTP endpoint tools registered per user
+│   ├── Chat Rooms — multi-user rooms with SSE broadcast
+│   ├── Webhooks — async event delivery
+│   ├── Quota Engine — daily/monthly token and cost limits
+│   └── Memory Manager — conversation summarisation / compaction
+├── SQLite (users, conversations, usage, audit log, knowledge base)
+└── In-Memory Cache (rate limits, alias resolution, session state)
 ```
 
 Data is stored in `~/.uniapi/` by default:
 - `data.db` — SQLite database
 - `secret` — auto-generated encryption key
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+K` | Focus model search / command palette |
+| `Ctrl+N` | New conversation |
+| `Ctrl+Enter` | Send message |
+| `Ctrl+Shift+C` | Copy last response |
+| `Ctrl+/` | Toggle sidebar |
+| `Ctrl+,` | Open settings |
+| `Esc` | Cancel generation / close modal |
 
 ## Deployment
 

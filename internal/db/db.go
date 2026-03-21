@@ -14,11 +14,13 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
+// Database wraps a SQLite connection and manages schema migrations.
 type Database struct {
 	DB   *sql.DB
 	path string
 }
 
+// Open opens (or creates) the SQLite database at dsn and applies any pending migrations.
 func Open(dsn string) (*Database, error) {
 	rawPath := dsn
 	if dsn == "" {
@@ -105,6 +107,7 @@ func (d *Database) migrate() error {
 	return nil
 }
 
+// NeedsSetup returns true when no admin user exists (first-run setup required).
 func (d *Database) NeedsSetup() (bool, error) {
 	var count int
 	err := d.DB.QueryRow("SELECT COUNT(*) FROM users WHERE role = 'admin'").Scan(&count)
@@ -114,6 +117,7 @@ func (d *Database) NeedsSetup() (bool, error) {
 	return count == 0, nil
 }
 
+// Close closes the underlying database connection.
 func (d *Database) Close() error {
 	return d.DB.Close()
 }

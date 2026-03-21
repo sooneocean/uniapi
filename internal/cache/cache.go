@@ -10,12 +10,14 @@ type entry struct {
     expireAt time.Time
 }
 
+// MemCache provides an in-memory key-value store with TTL expiration.
 type MemCache struct {
     mu     sync.RWMutex
     items  map[string]entry
     stopCh chan struct{}
 }
 
+// New creates a MemCache and starts its background TTL sweeper.
 func New() *MemCache {
     c := &MemCache{
         items:  make(map[string]entry),
@@ -25,12 +27,14 @@ func New() *MemCache {
     return c
 }
 
+// Set stores a value under key with the given TTL.
 func (c *MemCache) Set(key string, value interface{}, ttl time.Duration) {
     c.mu.Lock()
     c.items[key] = entry{value: value, expireAt: time.Now().Add(ttl)}
     c.mu.Unlock()
 }
 
+// Get retrieves a value by key; returns (nil, false) if missing or expired.
 func (c *MemCache) Get(key string) (interface{}, bool) {
     c.mu.RLock()
     e, ok := c.items[key]
@@ -70,12 +74,14 @@ func (c *MemCache) Increment(key string) int {
     return count
 }
 
+// Delete removes a key from the cache immediately.
 func (c *MemCache) Delete(key string) {
     c.mu.Lock()
     delete(c.items, key)
     c.mu.Unlock()
 }
 
+// Stop shuts down the background sweeper goroutine.
 func (c *MemCache) Stop() {
     close(c.stopCh)
 }

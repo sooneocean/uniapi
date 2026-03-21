@@ -7,10 +7,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// Manager manages the RAG knowledge base: document ingestion, chunking, and retrieval.
 type Manager struct {
 	db *sql.DB
 }
 
+// Document is a user-uploaded knowledge base document with associated chunks.
 type Document struct {
 	ID         string `json:"id"`
 	UserID     string `json:"user_id"`
@@ -21,6 +23,7 @@ type Document struct {
 	CreatedAt  string `json:"created_at"`
 }
 
+// Chunk is a fixed-size segment of a document used for retrieval.
 type Chunk struct {
 	ID         string `json:"id"`
 	DocID      string `json:"doc_id"`
@@ -28,6 +31,7 @@ type Chunk struct {
 	ChunkIndex int    `json:"chunk_index"`
 }
 
+// NewManager creates a RAG Manager backed by the given database.
 func NewManager(db *sql.DB) *Manager {
 	return &Manager{db: db}
 }
@@ -104,6 +108,7 @@ func (m *Manager) Search(userID, query string, limit int) ([]Chunk, error) {
 	return results, nil
 }
 
+// ListDocs returns all documents owned by or shared with the given user.
 func (m *Manager) ListDocs(userID string) ([]Document, error) {
 	rows, err := m.db.Query(
 		"SELECT id, user_id, title, chunk_count, shared, created_at FROM knowledge_docs WHERE user_id = ? OR shared = 1 ORDER BY created_at DESC",
@@ -121,6 +126,7 @@ func (m *Manager) ListDocs(userID string) ([]Document, error) {
 	return docs, nil
 }
 
+// DeleteDoc removes a document and its chunks, restricted to the owning user.
 func (m *Manager) DeleteDoc(id, userID string) error {
 	_, err := m.db.Exec("DELETE FROM knowledge_docs WHERE id = ? AND user_id = ?", id, userID)
 	return err

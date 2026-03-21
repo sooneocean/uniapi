@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// UsageRecord holds per-request token and cost data for a single API call.
 type UsageRecord struct {
 	UserID    string
 	Model     string
@@ -19,6 +20,7 @@ type UsageRecord struct {
 	LatencyMs int
 }
 
+// Recorder batches usage records and persists them to the database asynchronously.
 type Recorder struct {
 	db     *sql.DB
 	buffer []UsageRecord
@@ -27,6 +29,7 @@ type Recorder struct {
 	doneCh chan struct{}
 }
 
+// NewRecorder creates a Recorder and starts its background flush loop.
 func NewRecorder(db *sql.DB) *Recorder {
 	r := &Recorder{
 		db:     db,
@@ -109,6 +112,7 @@ func (r *Recorder) flush() {
 	}
 }
 
+// Stop flushes remaining records and shuts down the background flush loop.
 func (r *Recorder) Stop() {
 	close(r.stopCh)
 	<-r.doneCh
@@ -160,6 +164,7 @@ func (r *Recorder) GetAllUsage(from, to time.Time) ([]UserUsageSummary, error) {
 	return results, rows.Err()
 }
 
+// DailyUsage summarises token and cost usage for one model/provider/day combination.
 type DailyUsage struct {
 	Provider     string  `json:"provider"`
 	Model        string  `json:"model"`
@@ -170,6 +175,7 @@ type DailyUsage struct {
 	RequestCount int     `json:"request_count"`
 }
 
+// UserUsageSummary aggregates total token and cost usage per user for admin reporting.
 type UserUsageSummary struct {
 	Username     string  `json:"username"`
 	UserID       string  `json:"user_id"`

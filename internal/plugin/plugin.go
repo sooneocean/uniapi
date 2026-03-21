@@ -13,6 +13,7 @@ import (
 	"github.com/sooneocean/uniapi/internal/provider"
 )
 
+// Plugin is a user-registered HTTP endpoint exposed to the model as a callable tool.
 type Plugin struct {
 	ID          string            `json:"id"`
 	UserID      string            `json:"user_id"`
@@ -26,15 +27,18 @@ type Plugin struct {
 	Shared      bool              `json:"shared"`
 }
 
+// Manager manages the lifecycle of plugins: registration, listing, execution, and tool injection.
 type Manager struct {
 	db     *sql.DB
 	client *http.Client
 }
 
+// NewManager creates a plugin Manager backed by the given database.
 func NewManager(db *sql.DB) *Manager {
 	return &Manager{db: db, client: &http.Client{Timeout: 30 * time.Second}}
 }
 
+// Register creates a new plugin record owned by the given user.
 func (m *Manager) Register(userID, name, description, endpoint, method string, headers map[string]string, inputSchema json.RawMessage, shared bool) (*Plugin, error) {
 	id := uuid.New().String()
 	headersJSON, _ := json.Marshal(headers)
@@ -48,6 +52,7 @@ func (m *Manager) Register(userID, name, description, endpoint, method string, h
 	return &Plugin{ID: id, UserID: userID, Name: name, Description: description, Endpoint: endpoint, Method: method, Headers: headers, InputSchema: inputSchema, Shared: shared, Enabled: true}, nil
 }
 
+// List returns all plugins owned by or shared with the given user.
 func (m *Manager) List(userID string) ([]Plugin, error) {
 	rows, err := m.db.Query("SELECT id, user_id, name, description, endpoint, method, headers, input_schema, enabled, shared FROM plugins WHERE user_id = ? OR shared = 1 ORDER BY name", userID)
 	if err != nil {
@@ -79,6 +84,7 @@ func (m *Manager) GetByID(id, userID string) (*Plugin, error) {
 	return &p, nil
 }
 
+// Delete removes a plugin, restricted to its owner.
 func (m *Manager) Delete(id, userID string) error {
 	_, err := m.db.Exec("DELETE FROM plugins WHERE id = ? AND user_id = ?", id, userID)
 	return err
