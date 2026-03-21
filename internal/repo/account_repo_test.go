@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/uniapi/internal/crypto"
+	"github.com/sooneocean/uniapi/internal/crypto"
 )
 
 func testEncKey() []byte {

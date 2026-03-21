@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/uniapi/internal/provider"
+	"github.com/sooneocean/uniapi/internal/provider"
 )
 
 const (
@@ -316,8 +316,12 @@ func (s *anthropicStream) Close() error { return s.body.Close() }
 func (a *Anthropic) ValidateCredential(ctx context.Context, cred provider.Credential) error {
 	// Anthropic does not have a simple GET /models endpoint on the same path;
 	// we send a minimal messages request to verify the key.
+	model := "claude-haiku-4-20250414"
+	if len(a.modelIDs) > 0 {
+		model = a.modelIDs[0]
+	}
 	minReq := &anthropicRequest{
-		Model:     "claude-3-haiku-20240307",
+		Model:     model,
 		MaxTokens: 1,
 		Messages: []anthropicMessage{
 			{Role: "user", Content: []anthropicContentBlock{{Type: "text", Text: "hi"}}},

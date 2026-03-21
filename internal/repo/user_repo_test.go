@@ -2,7 +2,7 @@ package repo
 
 import (
 	"testing"
-	"github.com/user/uniapi/internal/db"
+	"github.com/sooneocean/uniapi/internal/db"
 )
 
 func setupTestDB(t *testing.T) *db.Database {

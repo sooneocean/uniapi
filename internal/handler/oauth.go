@@ -6,10 +6,10 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/user/uniapi/internal/audit"
-	"github.com/user/uniapi/internal/oauth"
-	"github.com/user/uniapi/internal/repo"
-	"github.com/user/uniapi/internal/router"
+	"github.com/sooneocean/uniapi/internal/audit"
+	"github.com/sooneocean/uniapi/internal/oauth"
+	"github.com/sooneocean/uniapi/internal/repo"
+	"github.com/sooneocean/uniapi/internal/router"
 )
 
 // OAuthHandler handles OAuth and session token binding endpoints.

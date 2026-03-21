@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/user/uniapi/internal/provider"
+	"github.com/sooneocean/uniapi/internal/provider"
 )
 
 const defaultBaseURL = "https://generativelanguage.googleapis.com"

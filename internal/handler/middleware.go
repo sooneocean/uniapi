@@ -10,9 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/user/uniapi/internal/auth"
-	"github.com/user/uniapi/internal/cache"
-	"github.com/user/uniapi/internal/metrics"
+	"github.com/sooneocean/uniapi/internal/auth"
+	"github.com/sooneocean/uniapi/internal/cache"
+	"github.com/sooneocean/uniapi/internal/metrics"
 )
 
 // RateLimitMiddleware limits requests per IP using in-memory counters.
@@ -139,7 +139,7 @@ func RequestIDMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		requestID := c.GetHeader("X-Request-ID")
 		if requestID == "" {
-			requestID = uuid.New().String()[:8]
+			requestID = uuid.New().String()
 		}
 		c.Set("request_id", requestID)
 		c.Header("X-Request-ID", requestID)

@@ -88,20 +88,20 @@ func (r *Recorder) GetAllUsage(from, to time.Time) ([]UserUsageSummary, error) {
 }
 
 type DailyUsage struct {
-	Provider     string
-	Model        string
-	Date         string
-	TokensIn     int
-	TokensOut    int
-	Cost         float64
-	RequestCount int
+	Provider     string  `json:"provider"`
+	Model        string  `json:"model"`
+	Date         string  `json:"date"`
+	TokensIn     int     `json:"tokens_in"`
+	TokensOut    int     `json:"tokens_out"`
+	Cost         float64 `json:"cost"`
+	RequestCount int     `json:"request_count"`
 }
 
 type UserUsageSummary struct {
-	Username     string
-	UserID       string
-	TokensIn     int
-	TokensOut    int
-	Cost         float64
-	RequestCount int
+	Username     string  `json:"username"`
+	UserID       string  `json:"user_id"`
+	TokensIn     int     `json:"tokens_in"`
+	TokensOut    int     `json:"tokens_out"`
+	Cost         float64 `json:"cost"`
+	RequestCount int     `json:"request_count"`
 }

@@ -3,8 +3,9 @@ package web
 import (
 	"embed"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 )
@@ -15,7 +16,8 @@ var frontendFS embed.FS
 func RegisterFrontend(r *gin.Engine) {
 	distFS, err := fs.Sub(frontendFS, "dist")
 	if err != nil {
-		log.Fatalf("failed to load frontend: %v", err)
+		slog.Error("failed to load frontend", "error", err)
+		os.Exit(1)
 	}
 	fileServer := http.FileServer(http.FS(distFS))
 	r.NoRoute(func(c *gin.Context) {

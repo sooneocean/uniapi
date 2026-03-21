@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/uniapi/internal/provider"
+	"github.com/sooneocean/uniapi/internal/provider"
 )
 
 const defaultBaseURL = "https://api.openai.com"

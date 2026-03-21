@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/user/uniapi/internal/provider"
+	"github.com/sooneocean/uniapi/internal/provider"
 )
 
 func TestConvertRequest(t *testing.T) {

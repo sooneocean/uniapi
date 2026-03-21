@@ -7,12 +7,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/user/uniapi/internal/audit"
-	"github.com/user/uniapi/internal/auth"
-	"github.com/user/uniapi/internal/db"
-	"github.com/user/uniapi/internal/provider"
-	"github.com/user/uniapi/internal/repo"
-	"github.com/user/uniapi/internal/usage"
+	"github.com/sooneocean/uniapi/internal/audit"
+	"github.com/sooneocean/uniapi/internal/auth"
+	"github.com/sooneocean/uniapi/internal/db"
+	"github.com/sooneocean/uniapi/internal/provider"
+	"github.com/sooneocean/uniapi/internal/repo"
+	"github.com/sooneocean/uniapi/internal/usage"
 )
 
 type SettingsHandler struct {
@@ -101,6 +101,10 @@ func (h *SettingsHandler) AddProvider(c *gin.Context) {
 	var req addProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.Label) > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "label too long"})
 		return
 	}
 	maxConc := req.MaxConcurrent
@@ -203,6 +207,14 @@ func (h *SettingsHandler) CreateUser(c *gin.Context) {
 	}
 	var req createUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.Username) > 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "username too long"})
+		return
+	}
+	if err := validatePassword(req.Password); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -423,6 +435,10 @@ func (h *SettingsHandler) CreateConversation(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if len(req.Title) > 500 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "title too long"})
+		return
+	}
 	conv, err := h.convoRepo.Create(userID, req.Title)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -498,6 +514,10 @@ func (h *SettingsHandler) UpdateConversation(c *gin.Context) {
 	var req updateConversationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if len(req.Title) > 500 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "title too long"})
 		return
 	}
 	if err := h.convoRepo.UpdateTitle(id, req.Title); err != nil {

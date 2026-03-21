@@ -3,10 +3,10 @@ package oauth
 import (
 	"testing"
 
-	"github.com/user/uniapi/internal/config"
-	"github.com/user/uniapi/internal/crypto"
-	"github.com/user/uniapi/internal/db"
-	"github.com/user/uniapi/internal/repo"
+	"github.com/sooneocean/uniapi/internal/config"
+	"github.com/sooneocean/uniapi/internal/crypto"
+	"github.com/sooneocean/uniapi/internal/db"
+	"github.com/sooneocean/uniapi/internal/repo"
 )
 
 func setupTest(t *testing.T) (*Manager, *db.Database) {

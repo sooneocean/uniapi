@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/user/uniapi/internal/db"
+	"github.com/sooneocean/uniapi/internal/db"
 )
 
 type Conversation struct {

@@ -14,24 +14,24 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/user/uniapi/internal/audit"
-	"github.com/user/uniapi/internal/auth"
-	"github.com/user/uniapi/internal/background"
-	"github.com/user/uniapi/internal/cache"
-	"github.com/user/uniapi/internal/config"
-	"github.com/user/uniapi/internal/crypto"
-	"github.com/user/uniapi/internal/db"
-	"github.com/user/uniapi/internal/handler"
-	"github.com/user/uniapi/internal/logger"
-	"github.com/user/uniapi/internal/oauth"
-	"github.com/user/uniapi/internal/provider"
-	pAnthropic "github.com/user/uniapi/internal/provider/anthropic"
-	pGemini "github.com/user/uniapi/internal/provider/gemini"
-	pOpenai "github.com/user/uniapi/internal/provider/openai"
-	"github.com/user/uniapi/internal/repo"
-	"github.com/user/uniapi/internal/router"
-	"github.com/user/uniapi/internal/usage"
-	"github.com/user/uniapi/internal/web"
+	"github.com/sooneocean/uniapi/internal/audit"
+	"github.com/sooneocean/uniapi/internal/auth"
+	"github.com/sooneocean/uniapi/internal/background"
+	"github.com/sooneocean/uniapi/internal/cache"
+	"github.com/sooneocean/uniapi/internal/config"
+	"github.com/sooneocean/uniapi/internal/crypto"
+	"github.com/sooneocean/uniapi/internal/db"
+	"github.com/sooneocean/uniapi/internal/handler"
+	"github.com/sooneocean/uniapi/internal/logger"
+	"github.com/sooneocean/uniapi/internal/oauth"
+	"github.com/sooneocean/uniapi/internal/provider"
+	pAnthropic "github.com/sooneocean/uniapi/internal/provider/anthropic"
+	pGemini "github.com/sooneocean/uniapi/internal/provider/gemini"
+	pOpenai "github.com/sooneocean/uniapi/internal/provider/openai"
+	"github.com/sooneocean/uniapi/internal/repo"
+	"github.com/sooneocean/uniapi/internal/router"
+	"github.com/sooneocean/uniapi/internal/usage"
+	"github.com/sooneocean/uniapi/internal/web"
 )
 
 func main() {
@@ -306,6 +306,8 @@ func main() {
 	apiHandler := handler.NewAPIHandler(rtr, recorder)
 	v1 := engine.Group("/v1")
 	v1.Use(handler.APIKeyAuthMiddleware(database.DB, jwtMgr))
+	apiLimiter := handler.RateLimitMiddleware(memCache, 60, 1*time.Minute) // 60 req/min per IP
+	v1.Use(apiLimiter)
 	v1.POST("/chat/completions", apiHandler.ChatCompletions)
 	v1.GET("/models", apiHandler.ListModels)
 

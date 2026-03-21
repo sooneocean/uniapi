@@ -5,8 +5,8 @@ import (
     "fmt"
     "testing"
 
-    "github.com/user/uniapi/internal/cache"
-    "github.com/user/uniapi/internal/provider"
+    "github.com/sooneocean/uniapi/internal/cache"
+    "github.com/sooneocean/uniapi/internal/provider"
 )
 
 type fakeProvider struct {

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/uniapi/internal/db"
+	"github.com/sooneocean/uniapi/internal/db"
 )
 
 func TestCalculateCost_KnownModel(t *testing.T) {

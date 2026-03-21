@@ -9,10 +9,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/user/uniapi/internal/metrics"
-	"github.com/user/uniapi/internal/provider"
-	"github.com/user/uniapi/internal/router"
-	"github.com/user/uniapi/internal/usage"
+	"github.com/sooneocean/uniapi/internal/metrics"
+	"github.com/sooneocean/uniapi/internal/provider"
+	"github.com/sooneocean/uniapi/internal/router"
+	"github.com/sooneocean/uniapi/internal/usage"
 )
 
 type APIHandler struct {
@@ -43,6 +43,12 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
 		return
+	}
+	for _, m := range req.Messages {
+		if len(m.Content) > 1_000_000 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "message content too large"}})
+			return
+		}
 	}
 	messages := make([]provider.Message, len(req.Messages))
 	for i, m := range req.Messages {

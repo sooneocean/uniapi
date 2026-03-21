@@ -1,14 +1,22 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/user/uniapi/internal/audit"
-	"github.com/user/uniapi/internal/auth"
-	"github.com/user/uniapi/internal/db"
-	"github.com/user/uniapi/internal/repo"
+	"github.com/sooneocean/uniapi/internal/audit"
+	"github.com/sooneocean/uniapi/internal/auth"
+	"github.com/sooneocean/uniapi/internal/db"
+	"github.com/sooneocean/uniapi/internal/repo"
 )
+
+func validatePassword(password string) error {
+	if len(password) < 8 {
+		return fmt.Errorf("password must be at least 8 characters")
+	}
+	return nil
+}
 
 type AuthHandler struct {
 	userRepo *repo.UserRepo
@@ -63,6 +71,11 @@ func (h *AuthHandler) Setup(c *gin.Context) {
 
 	var req setupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := validatePassword(req.Password); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

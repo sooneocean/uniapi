@@ -7,8 +7,8 @@ import (
     "sync/atomic"
     "time"
 
-    "github.com/user/uniapi/internal/cache"
-    "github.com/user/uniapi/internal/provider"
+    "github.com/sooneocean/uniapi/internal/cache"
+    "github.com/sooneocean/uniapi/internal/provider"
 )
 
 type Config struct {

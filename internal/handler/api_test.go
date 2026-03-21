@@ -9,9 +9,9 @@ import (
     "testing"
 
     "github.com/gin-gonic/gin"
-    "github.com/user/uniapi/internal/cache"
-    "github.com/user/uniapi/internal/provider"
-    "github.com/user/uniapi/internal/router"
+    "github.com/sooneocean/uniapi/internal/cache"
+    "github.com/sooneocean/uniapi/internal/provider"
+    "github.com/sooneocean/uniapi/internal/router"
 )
 
 type fakeProvider struct {

@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/user/uniapi/internal/config"
-	"github.com/user/uniapi/internal/db"
-	"github.com/user/uniapi/internal/repo"
+	"github.com/sooneocean/uniapi/internal/config"
+	"github.com/sooneocean/uniapi/internal/db"
+	"github.com/sooneocean/uniapi/internal/repo"
 )
 
 // Manager handles OAuth and session token binding flows.
@@ -96,8 +96,11 @@ func (m *Manager) AuthorizeURL(providerName, userID, sessionHash string, shared 
 		return "", fmt.Errorf("provider %s does not support OAuth", providerName)
 	}
 
-	state := generateState()
-	_, err := m.db.DB.Exec(
+	state, err := generateState()
+	if err != nil {
+		return "", fmt.Errorf("authorize url: %w", err)
+	}
+	_, err = m.db.DB.Exec(
 		"INSERT INTO oauth_states (state, provider, user_id, session_hash, shared) VALUES (?, ?, ?, ?, ?)",
 		state, providerName, userID, sessionHash, shared,
 	)
@@ -308,10 +311,12 @@ func (m *Manager) Unbind(accountID, userID, role string) error {
 }
 
 // generateState creates a cryptographically random state token.
-func generateState() string {
+func generateState() (string, error) {
 	b := make([]byte, 32)
-	io.ReadFull(rand.Reader, b)
-	return hex.EncodeToString(b)
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		return "", fmt.Errorf("generate state: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // HashSession returns the SHA-256 hex hash of a JWT string.
