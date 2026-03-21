@@ -224,6 +224,12 @@ export async function downloadBackup() {
   URL.revokeObjectURL(url);
 }
 
+// Model comparison
+export async function compareModels(prompt: string, models: string[], systemPrompt?: string) {
+  const resp = await api.post('/v1/compare', { prompt, models, system_prompt: systemPrompt || '' });
+  return resp.data.results;
+}
+
 // OAuth / Binding
 export async function getOAuthProviders() {
   return (await api.get('/api/oauth/providers')).data;

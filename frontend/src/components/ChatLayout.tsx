@@ -7,6 +7,7 @@ import Settings from './Settings';
 import ThemeToggle from './ThemeToggle';
 import LanguageToggle from './LanguageToggle';
 import ShortcutHelp from './ShortcutHelp';
+import CompareMode from './CompareMode';
 import { getMe, logout, getConversations, createConversation } from '../api/client';
 import { useTheme } from '../hooks/useTheme';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -21,6 +22,7 @@ export default function ChatLayout({ onShowAccounts }: Props) {
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showCompare, setShowCompare] = useState(false);
   const [userRole, setUserRole] = useState<string>('member');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
@@ -121,6 +123,14 @@ export default function ChatLayout({ onShowAccounts }: Props) {
 
           {/* Right side icons */}
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowCompare(true)}
+              title="Compare Models"
+              className="text-gray-400 hover:text-white transition-colors text-sm px-2 py-1 rounded hover:bg-gray-700 border border-gray-600"
+              aria-label="Compare Models"
+            >
+              &#9878; Compare
+            </button>
             <LanguageToggle />
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
             <button
@@ -164,6 +174,10 @@ export default function ChatLayout({ onShowAccounts }: Props) {
 
       {showShortcuts && (
         <ShortcutHelp onClose={() => setShowShortcuts(false)} />
+      )}
+
+      {showCompare && (
+        <CompareMode onClose={() => setShowCompare(false)} />
       )}
     </div>
   );

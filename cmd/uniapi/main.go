@@ -320,6 +320,7 @@ func main() {
 	v1.Use(apiLimiter)
 	v1.POST("/chat/completions", apiHandler.ChatCompletions)
 	v1.GET("/models", apiHandler.ListModels)
+	v1.POST("/compare", apiHandler.CompareModels)
 
 	// Health
 	engine.GET("/health", func(c *gin.Context) {
