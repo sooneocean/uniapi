@@ -67,9 +67,8 @@ func TestRecordAndGetUserUsage(t *testing.T) {
 		LatencyMs: 200,
 	}
 
-	if err := recorder.RecordUsage(rec); err != nil {
-		t.Fatalf("RecordUsage: %v", err)
-	}
+	recorder.RecordUsage(rec)
+	recorder.Stop()
 
 	from := time.Now().AddDate(0, 0, -1)
 	to := time.Now().AddDate(0, 0, 1)
@@ -124,12 +123,9 @@ func TestRecordUsage_Upsert(t *testing.T) {
 	}
 
 	// Record twice - should upsert (same user/model/date)
-	if err := recorder.RecordUsage(rec); err != nil {
-		t.Fatalf("first RecordUsage: %v", err)
-	}
-	if err := recorder.RecordUsage(rec); err != nil {
-		t.Fatalf("second RecordUsage: %v", err)
-	}
+	recorder.RecordUsage(rec)
+	recorder.RecordUsage(rec)
+	recorder.Stop()
 
 	from := time.Now().AddDate(0, 0, -1)
 	to := time.Now().AddDate(0, 0, 1)

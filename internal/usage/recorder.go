@@ -2,6 +2,8 @@ package usage
 
 import (
 	"database/sql"
+	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,18 +20,69 @@ type UsageRecord struct {
 }
 
 type Recorder struct {
-	db *sql.DB
+	db     *sql.DB
+	buffer []UsageRecord
+	mu     sync.Mutex
+	stopCh chan struct{}
+	doneCh chan struct{}
 }
 
 func NewRecorder(db *sql.DB) *Recorder {
-	return &Recorder{db: db}
+	r := &Recorder{
+		db:     db,
+		buffer: make([]UsageRecord, 0, 32),
+		stopCh: make(chan struct{}),
+		doneCh: make(chan struct{}),
+	}
+	go r.flushLoop()
+	return r
 }
 
-// RecordUsage inserts a usage entry into usage_daily (upsert).
-func (r *Recorder) RecordUsage(rec UsageRecord) error {
-	id := uuid.New().String()
-	date := time.Now().Format("2006-01-02")
-	_, err := r.db.Exec(`
+// RecordUsage buffers a usage entry for batch writing.
+func (r *Recorder) RecordUsage(rec UsageRecord) {
+	r.mu.Lock()
+	r.buffer = append(r.buffer, rec)
+	shouldFlush := len(r.buffer) >= 20
+	r.mu.Unlock()
+
+	if shouldFlush {
+		r.flush()
+	}
+}
+
+func (r *Recorder) flushLoop() {
+	defer close(r.doneCh)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			r.flush()
+		case <-r.stopCh:
+			r.flush() // final flush
+			return
+		}
+	}
+}
+
+func (r *Recorder) flush() {
+	r.mu.Lock()
+	if len(r.buffer) == 0 {
+		r.mu.Unlock()
+		return
+	}
+	records := r.buffer
+	r.buffer = make([]UsageRecord, 0, 32)
+	r.mu.Unlock()
+
+	// Write all records in a single transaction
+	tx, err := r.db.Begin()
+	if err != nil {
+		slog.Error("usage flush tx begin", "error", err)
+		return
+	}
+
+	stmt, err := tx.Prepare(`
 		INSERT INTO usage_daily (id, user_id, provider, model, date, tokens_in, tokens_out, cost, request_count)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
 		ON CONFLICT(user_id, provider, model, date) DO UPDATE SET
@@ -37,8 +90,28 @@ func (r *Recorder) RecordUsage(rec UsageRecord) error {
 			tokens_out = tokens_out + excluded.tokens_out,
 			cost = cost + excluded.cost,
 			request_count = request_count + 1
-	`, id, rec.UserID, rec.Provider, rec.Model, date, rec.TokensIn, rec.TokensOut, rec.Cost)
-	return err
+	`)
+	if err != nil {
+		tx.Rollback()
+		slog.Error("usage flush prepare", "error", err)
+		return
+	}
+	defer stmt.Close()
+
+	date := time.Now().Format("2006-01-02")
+	for _, rec := range records {
+		stmt.Exec(uuid.New().String(), rec.UserID, rec.Provider, rec.Model, date,
+			rec.TokensIn, rec.TokensOut, rec.Cost)
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("usage flush commit", "error", err)
+	}
+}
+
+func (r *Recorder) Stop() {
+	close(r.stopCh)
+	<-r.doneCh
 }
 
 // GetUserUsage returns usage stats for a user within a date range.

@@ -87,8 +87,17 @@ type ConversationWithPreview struct {
 func (r *ConversationRepo) ListByUserWithPreview(userID string) ([]ConversationWithPreview, error) {
 	rows, err := r.db.DB.Query(`
 		SELECT c.id, c.user_id, c.title, COALESCE(c.folder,''), COALESCE(c.pinned,0), COALESCE(c.share_token,''), c.created_at, c.updated_at,
-			COALESCE((SELECT SUBSTR(m.content, 1, 80) FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at LIMIT 1), '')
-		FROM conversations c WHERE c.user_id = ? ORDER BY COALESCE(c.pinned,0) DESC, c.updated_at DESC
+			COALESCE(p.preview, '')
+		FROM conversations c
+		LEFT JOIN (
+			SELECT conversation_id, SUBSTR(content, 1, 80) as preview
+			FROM messages
+			WHERE rowid IN (
+				SELECT MIN(rowid) FROM messages GROUP BY conversation_id
+			)
+		) p ON p.conversation_id = c.id
+		WHERE c.user_id = ?
+		ORDER BY c.pinned DESC, c.updated_at DESC
 	`, userID)
 	if err != nil {
 		return nil, err

@@ -114,6 +114,7 @@ func main() {
 	accountRepo := repo.NewAccountRepo(database, encKey)
 	convoRepo := repo.NewConversationRepo(database)
 	recorder := usage.NewRecorder(database.DB)
+	defer recorder.Stop()
 
 	// OAuth manager
 	oauthMgr := oauth.NewManager(database, accountRepo, encKey, cfg.OAuth.BaseURL, cfg.OAuth)

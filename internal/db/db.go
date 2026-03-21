@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -21,13 +22,13 @@ type Database struct {
 func Open(dsn string) (*Database, error) {
 	rawPath := dsn
 	if dsn == "" {
-		dsn = "file:uniapi.db?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on"
+		dsn = "file:uniapi.db?_journal_mode=WAL&_busy_timeout=3000&_foreign_keys=on"
 		rawPath = "uniapi.db"
 	} else if dsn == ":memory:" {
 		dsn = "file::memory:?_foreign_keys=on"
 		rawPath = ":memory:"
 	} else if !strings.Contains(dsn, "?") {
-		dsn = fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on", dsn)
+		dsn = fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=3000&_foreign_keys=on", dsn)
 	}
 
 	sqlDB, err := sql.Open("sqlite", dsn)
@@ -36,8 +37,9 @@ func Open(dsn string) (*Database, error) {
 	}
 
 	// WAL mode: allow concurrent reads
-	sqlDB.SetMaxOpenConns(10)
-	sqlDB.SetMaxIdleConns(5)
+	sqlDB.SetMaxOpenConns(20)
+	sqlDB.SetMaxIdleConns(10)
+	sqlDB.SetConnMaxLifetime(30 * time.Minute)
 
 	database := &Database{DB: sqlDB, path: rawPath}
 	if err := database.migrate(); err != nil {

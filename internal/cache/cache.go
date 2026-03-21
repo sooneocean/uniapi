@@ -48,18 +48,25 @@ func (c *MemCache) Get(key string) (interface{}, bool) {
 // Increment atomically increments a counter without resetting its TTL.
 // Returns the new count. If key doesn't exist, returns 0.
 func (c *MemCache) Increment(key string) int {
-    c.mu.Lock()
-    defer c.mu.Unlock()
+    c.mu.RLock()
     e, ok := c.items[key]
+    c.mu.RUnlock()
+
     if !ok || time.Now().After(e.expireAt) {
         return 0
     }
-    count, ok := e.value.(int)
-    if !ok {
+
+    c.mu.Lock()
+    // Re-check under write lock (double-check pattern)
+    e, ok = c.items[key]
+    if !ok || time.Now().After(e.expireAt) {
+        c.mu.Unlock()
         return 0
     }
+    count, _ := e.value.(int)
     count++
     c.items[key] = entry{value: count, expireAt: e.expireAt}
+    c.mu.Unlock()
     return count
 }
 
@@ -74,7 +81,7 @@ func (c *MemCache) Stop() {
 }
 
 func (c *MemCache) sweeper() {
-    ticker := time.NewTicker(60 * time.Second)
+    ticker := time.NewTicker(30 * time.Second)
     defer ticker.Stop()
     for {
         select {
@@ -88,9 +95,26 @@ func (c *MemCache) sweeper() {
 
 func (c *MemCache) evictExpired() {
     now := time.Now()
-    c.mu.Lock()
+
+    // Phase 1: collect expired keys under read lock
+    c.mu.RLock()
+    var expired []string
     for k, e := range c.items {
         if now.After(e.expireAt) {
+            expired = append(expired, k)
+        }
+    }
+    c.mu.RUnlock()
+
+    if len(expired) == 0 {
+        return
+    }
+
+    // Phase 2: delete under write lock (shorter hold time)
+    c.mu.Lock()
+    for _, k := range expired {
+        // Re-check in case it was refreshed
+        if e, ok := c.items[k]; ok && now.After(e.expireAt) {
             delete(c.items, k)
         }
     }
