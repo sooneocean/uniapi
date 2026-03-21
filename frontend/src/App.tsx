@@ -3,9 +3,23 @@ import ChatLayout from './components/ChatLayout';
 import SetupWizard from './components/SetupWizard';
 import LoginPage from './components/LoginPage';
 import MyAccounts from './components/MyAccounts';
+import SharedView from './components/SharedView';
 import { getStatus } from './api/client';
 
+function getSharedToken(): string | null {
+  const path = window.location.pathname;
+  const match = path.match(/^\/shared\/([^/]+)/);
+  return match ? match[1] : null;
+}
+
 function App() {
+  const sharedToken = getSharedToken();
+
+  // If this is a shared conversation link, render read-only view immediately
+  if (sharedToken) {
+    return <SharedView token={sharedToken} />;
+  }
+
   const [state, setState] = useState<'loading' | 'setup' | 'login' | 'chat'>('loading');
   const [page, setPage] = useState<'chat' | 'accounts'>('chat');
 

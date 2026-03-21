@@ -616,6 +616,133 @@ func (h *SettingsHandler) DeleteConversation(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// ─── Conversation folders & pins ──────────────────────────────────────────────
+
+// PUT /api/conversations/:id/folder
+func (h *SettingsHandler) UpdateConversationFolder(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, _ := userIDVal.(string)
+	id := c.Param("id")
+	conv, err := h.convoRepo.GetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		return
+	}
+	if conv.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+	var req struct {
+		Folder string `json:"folder"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.convoRepo.UpdateFolder(id, req.Folder); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// PUT /api/conversations/:id/pin
+func (h *SettingsHandler) ToggleConversationPin(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, _ := userIDVal.(string)
+	id := c.Param("id")
+	conv, err := h.convoRepo.GetByID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		return
+	}
+	if conv.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+	if err := h.convoRepo.TogglePin(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// ─── Conversation sharing ─────────────────────────────────────────────────────
+
+// POST /api/conversations/:id/share
+func (h *SettingsHandler) ShareConversation(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, _ := userIDVal.(string)
+	convoID := c.Param("id")
+	conv, err := h.convoRepo.GetByID(convoID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		return
+	}
+	if conv.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+	token := uuid.New().String()[:12]
+	if err := h.convoRepo.SetShareToken(convoID, token); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"share_url": "/shared/" + token})
+}
+
+// DELETE /api/conversations/:id/share
+func (h *SettingsHandler) UnshareConversation(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, _ := userIDVal.(string)
+	convoID := c.Param("id")
+	conv, err := h.convoRepo.GetByID(convoID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		return
+	}
+	if conv.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+	if err := h.convoRepo.SetShareToken(convoID, ""); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// GET /api/shared/:token (public — no auth)
+func (h *SettingsHandler) GetSharedConversation(c *gin.Context) {
+	token := c.Param("token")
+	convo, err := h.convoRepo.GetByShareToken(token)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	messages, _ := h.convoRepo.GetMessages(convo.ID)
+	if messages == nil {
+		messages = []repo.MessageRecord{}
+	}
+	c.JSON(http.StatusOK, gin.H{"conversation": convo, "messages": messages})
+}
+
 // ─── Usage ────────────────────────────────────────────────────────────────────
 
 func dateRangeFromQuery(c *gin.Context) (time.Time, time.Time) {

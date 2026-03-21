@@ -1,7 +1,43 @@
+import { useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
+import mermaid from 'mermaid';
 import type { Message } from '../types';
+
+mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+
+// Pre-process content to replace LaTeX with rendered HTML
+function renderLatex(text: string): string {
+  // Block math: $$...$$
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
+    try { return katex.renderToString(math.trim(), { displayMode: true, throwOnError: false }); }
+    catch { return `$$${math}$$`; }
+  });
+  // Inline math: $...$
+  text = text.replace(/\$([^\$\n]+?)\$/g, (_, math) => {
+    try { return katex.renderToString(math.trim(), { displayMode: false, throwOnError: false }); }
+    catch { return `$${math}$`; }
+  });
+  return text;
+}
+
+function MermaidDiagram({ code }: { code: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    const id = 'mermaid-' + Math.random().toString(36).slice(2);
+    mermaid.render(id, code).then(({ svg }) => {
+      if (ref.current) ref.current.innerHTML = svg;
+    }).catch(() => {
+      if (ref.current) ref.current.textContent = 'Diagram error';
+    });
+  }, [code]);
+  return <div ref={ref} className="my-2" />;
+}
 
 interface Props {
   message: Message;
@@ -12,6 +48,7 @@ interface Props {
 
 export default function MessageBubble({ message, isLastAssistant, onEdit, onRegenerate }: Props) {
   const isUser = message.role === 'user';
+  const processedContent = isUser ? message.content : renderLatex(message.content);
 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4 group`}>
@@ -41,10 +78,14 @@ export default function MessageBubble({ message, isLastAssistant, onEdit, onRege
         ) : (
           <div className="text-sm prose prose-invert prose-sm max-w-none">
             <ReactMarkdown
+              rehypePlugins={[rehypeRaw]}
               components={{
                 code({ node: _node, className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');
                   const inline = !match && !String(children).includes('\n');
+                  if (!inline && match && match[1] === 'mermaid') {
+                    return <MermaidDiagram code={String(children)} />;
+                  }
                   if (!inline && match) {
                     return (
                       <div className="relative group">
@@ -68,7 +109,7 @@ export default function MessageBubble({ message, isLastAssistant, onEdit, onRege
                 },
               }}
             >
-              {message.content}
+              {processedContent}
             </ReactMarkdown>
           </div>
         )}

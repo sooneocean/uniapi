@@ -284,6 +284,11 @@ func main() {
 	apiAuth.DELETE("/conversations/:id/messages/:msgId", settingsHandler.DeleteMessageAndAfter)
 	apiAuth.GET("/conversations/:id/export", settingsHandler.ExportConversation)
 	apiAuth.POST("/conversations/:id/auto-title", settingsHandler.AutoTitle)
+	apiAuth.PUT("/conversations/:id/folder", settingsHandler.UpdateConversationFolder)
+	apiAuth.PUT("/conversations/:id/pin", settingsHandler.ToggleConversationPin)
+	apiAuth.POST("/conversations/:id/share", settingsHandler.ShareConversation)
+	apiAuth.DELETE("/conversations/:id/share", settingsHandler.UnshareConversation)
+	engine.GET("/api/shared/:token", settingsHandler.GetSharedConversation)
 
 	// System prompts
 	apiAuth.GET("/system-prompts", settingsHandler.ListSystemPrompts)

@@ -1,0 +1,2 @@
+ALTER TABLE conversations ADD COLUMN folder TEXT DEFAULT '';
+ALTER TABLE conversations ADD COLUMN pinned BOOLEAN NOT NULL DEFAULT 0;

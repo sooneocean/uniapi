@@ -202,6 +202,19 @@ export async function getAuditLog(limit = 50, offset = 0) {
   return (await api.get(`/api/audit-log?limit=${limit}&offset=${offset}`)).data;
 }
 
+// Folder & pin
+export async function setFolder(id: string, folder: string) { await api.put(`/api/conversations/${id}/folder`, { folder }); }
+export async function togglePin(id: string) { await api.put(`/api/conversations/${id}/pin`); }
+
+// Sharing
+export async function shareConversation(id: string): Promise<{ share_url: string }> {
+  return (await api.post(`/api/conversations/${id}/share`)).data;
+}
+export async function unshareConversation(id: string) { await api.delete(`/api/conversations/${id}/share`); }
+export async function getSharedConversation(token: string) {
+  return (await api.get(`/api/shared/${token}`)).data;
+}
+
 // Auto-title
 export async function autoTitle(conversationId: string): Promise<string> {
   const resp = await api.post(`/api/conversations/${conversationId}/auto-title`);

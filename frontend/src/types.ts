@@ -21,6 +21,9 @@ export interface Conversation {
   id: string;
   title: string;
   preview?: string;
+  folder?: string;
+  pinned?: boolean;
+  share_token?: string;
   createdAt: string;
   updatedAt: string;
 }

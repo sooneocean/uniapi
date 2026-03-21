@@ -9,6 +9,8 @@ import {
   deleteMessageAndAfter,
   exportConversation,
   autoTitle,
+  shareConversation,
+  unshareConversation,
 } from '../api/client';
 import ModelSelector from './ModelSelector';
 import MessageBubble from './MessageBubble';
@@ -32,6 +34,12 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
   const [loading, setLoading] = useState(false);
   const [lastStats, setLastStats] = useState({ tokensIn: 0, tokensOut: 0, latencyMs: 0 });
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [streamingSpeed, setStreamingSpeed] = useState(0);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const streamStartRef = useRef<number>(0);
+  const tokenCountRef = useRef<number>(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -120,6 +128,11 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
     };
     setMessages((prev) => [...prev, assistantMsg]);
 
+    // Reset streaming speed tracking
+    streamStartRef.current = Date.now();
+    tokenCountRef.current = 0;
+    setStreamingSpeed(0);
+
     let finalContent = '';
     let finalUsage = { tokensIn: 0, tokensOut: 0, latencyMs: 0 };
 
@@ -136,6 +149,11 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
         apiMessages,
         (chunk) => {
           finalContent += chunk;
+          tokenCountRef.current++;
+          const elapsed = (Date.now() - streamStartRef.current) / 1000;
+          if (elapsed > 0.5) {
+            setStreamingSpeed(Math.round(tokenCountRef.current / elapsed));
+          }
           setMessages((prev) =>
             prev.map((m) => m.id === assistantId ? { ...m, content: m.content + chunk } : m)
           );
@@ -184,6 +202,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
       );
     } finally {
       setLoading(false);
+      setStreamingSpeed(0);
     }
   };
 
@@ -290,10 +309,76 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
 
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--bg-primary)' }}>
+      {/* Share dialog */}
+      {showShareDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowShareDialog(false)}>
+          <div className="bg-gray-800 border border-gray-600 rounded-xl p-6 shadow-2xl max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-white font-semibold mb-4">Share Conversation</h3>
+            {shareUrl ? (
+              <>
+                <p className="text-gray-300 text-sm mb-3">Anyone with this link can view this conversation:</p>
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 bg-gray-700 text-gray-100 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none"
+                    value={window.location.origin + shareUrl}
+                    readOnly
+                  />
+                  <button
+                    className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm transition-colors"
+                    onClick={() => {
+                      navigator.clipboard.writeText(window.location.origin + shareUrl);
+                      setShareCopied(true);
+                      setTimeout(() => setShareCopied(false), 2000);
+                    }}
+                  >
+                    {shareCopied ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+                <button
+                  className="mt-3 text-xs text-red-400 hover:text-red-300"
+                  onClick={async () => {
+                    if (conversationId) {
+                      await unshareConversation(conversationId).catch(() => {});
+                      setShareUrl(null);
+                    }
+                  }}
+                >
+                  Revoke link
+                </button>
+              </>
+            ) : (
+              <p className="text-gray-400 text-sm">Generating share link...</p>
+            )}
+            <button
+              className="mt-4 w-full py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm transition-colors"
+              onClick={() => setShowShareDialog(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top bar with model selector */}
       <div className="flex items-center justify-between px-2 md:px-4 py-3 border-b border-gray-700" style={{ background: 'var(--bg-secondary)' }}>
         <span className="text-gray-300 text-sm font-medium">Chat</span>
         <div className="flex items-center gap-2">
+          {/* Share button */}
+          {conversationId && messages.length > 0 && (
+            <button
+              className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-gray-700 border border-gray-600 text-gray-300 hover:bg-gray-600 transition-colors"
+              title="Share conversation"
+              onClick={async () => {
+                setShowShareDialog(true);
+                if (!shareUrl) {
+                  const result = await shareConversation(conversationId).catch(() => null);
+                  if (result) setShareUrl(result.share_url);
+                }
+              }}
+            >
+              🔗
+            </button>
+          )}
           {/* Export button */}
           {conversationId && messages.length > 0 && (
             <div className="relative group/export">
@@ -357,6 +442,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
         tokensIn={lastStats.tokensIn}
         tokensOut={lastStats.tokensOut}
         latencyMs={lastStats.latencyMs}
+        streamingSpeed={loading ? streamingSpeed : 0}
       />
 
       {/* System prompt selector */}

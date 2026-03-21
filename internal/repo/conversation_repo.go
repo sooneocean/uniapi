@@ -10,11 +10,14 @@ import (
 )
 
 type Conversation struct {
-	ID        string
-	UserID    string
-	Title     string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID         string    `json:"id"`
+	UserID     string    `json:"user_id"`
+	Title      string    `json:"title"`
+	Folder     string    `json:"folder"`
+	Pinned     bool      `json:"pinned"`
+	ShareToken string    `json:"share_token,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 type MessageRecord struct {
@@ -61,9 +64,9 @@ func (r *ConversationRepo) Create(userID, title string) (*Conversation, error) {
 func (r *ConversationRepo) GetByID(id string) (*Conversation, error) {
 	c := &Conversation{}
 	err := r.db.DB.QueryRow(
-		"SELECT id, user_id, title, created_at, updated_at FROM conversations WHERE id = ?",
+		"SELECT id, user_id, title, COALESCE(folder,''), COALESCE(pinned,0), COALESCE(share_token,''), created_at, updated_at FROM conversations WHERE id = ?",
 		id,
-	).Scan(&c.ID, &c.UserID, &c.Title, &c.CreatedAt, &c.UpdatedAt)
+	).Scan(&c.ID, &c.UserID, &c.Title, &c.Folder, &c.Pinned, &c.ShareToken, &c.CreatedAt, &c.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("conversation not found: %s", id)
 	}
@@ -80,12 +83,12 @@ type ConversationWithPreview struct {
 }
 
 // ListByUserWithPreview returns conversations for a user, each with a short preview
-// of the first message (up to 80 chars).
+// of the first message (up to 80 chars). Pinned conversations appear first.
 func (r *ConversationRepo) ListByUserWithPreview(userID string) ([]ConversationWithPreview, error) {
 	rows, err := r.db.DB.Query(`
-		SELECT c.id, c.user_id, c.title, c.created_at, c.updated_at,
+		SELECT c.id, c.user_id, c.title, COALESCE(c.folder,''), COALESCE(c.pinned,0), COALESCE(c.share_token,''), c.created_at, c.updated_at,
 			COALESCE((SELECT SUBSTR(m.content, 1, 80) FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at LIMIT 1), '')
-		FROM conversations c WHERE c.user_id = ? ORDER BY c.updated_at DESC
+		FROM conversations c WHERE c.user_id = ? ORDER BY COALESCE(c.pinned,0) DESC, c.updated_at DESC
 	`, userID)
 	if err != nil {
 		return nil, err
@@ -94,7 +97,7 @@ func (r *ConversationRepo) ListByUserWithPreview(userID string) ([]ConversationW
 	var convs []ConversationWithPreview
 	for rows.Next() {
 		var c ConversationWithPreview
-		if err := rows.Scan(&c.ID, &c.UserID, &c.Title, &c.CreatedAt, &c.UpdatedAt, &c.Preview); err != nil {
+		if err := rows.Scan(&c.ID, &c.UserID, &c.Title, &c.Folder, &c.Pinned, &c.ShareToken, &c.CreatedAt, &c.UpdatedAt, &c.Preview); err != nil {
 			return nil, err
 		}
 		convs = append(convs, c)
@@ -104,7 +107,7 @@ func (r *ConversationRepo) ListByUserWithPreview(userID string) ([]ConversationW
 
 func (r *ConversationRepo) ListByUser(userID string) ([]Conversation, error) {
 	rows, err := r.db.DB.Query(
-		"SELECT id, user_id, title, created_at, updated_at FROM conversations WHERE user_id = ? ORDER BY updated_at DESC",
+		"SELECT id, user_id, title, COALESCE(folder,''), COALESCE(pinned,0), COALESCE(share_token,''), created_at, updated_at FROM conversations WHERE user_id = ? ORDER BY COALESCE(pinned,0) DESC, updated_at DESC",
 		userID,
 	)
 	if err != nil {
@@ -114,7 +117,7 @@ func (r *ConversationRepo) ListByUser(userID string) ([]Conversation, error) {
 	var convs []Conversation
 	for rows.Next() {
 		var c Conversation
-		if err := rows.Scan(&c.ID, &c.UserID, &c.Title, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.UserID, &c.Title, &c.Folder, &c.Pinned, &c.ShareToken, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, err
 		}
 		convs = append(convs, c)
@@ -193,6 +196,36 @@ func (r *ConversationRepo) DeleteMessageAndAfter(conversationID, messageID strin
 		conversationID, createdAt,
 	)
 	return err
+}
+
+func (r *ConversationRepo) UpdateFolder(id, folder string) error {
+	_, err := r.db.DB.Exec("UPDATE conversations SET folder = ? WHERE id = ?", folder, id)
+	return err
+}
+
+func (r *ConversationRepo) TogglePin(id string) error {
+	_, err := r.db.DB.Exec("UPDATE conversations SET pinned = NOT pinned WHERE id = ?", id)
+	return err
+}
+
+func (r *ConversationRepo) SetShareToken(id, token string) error {
+	_, err := r.db.DB.Exec("UPDATE conversations SET share_token = ? WHERE id = ?", token, id)
+	return err
+}
+
+func (r *ConversationRepo) GetByShareToken(token string) (*Conversation, error) {
+	c := &Conversation{}
+	err := r.db.DB.QueryRow(
+		"SELECT id, user_id, title, COALESCE(folder,''), COALESCE(pinned,0), COALESCE(share_token,''), created_at, updated_at FROM conversations WHERE share_token = ?",
+		token,
+	).Scan(&c.ID, &c.UserID, &c.Title, &c.Folder, &c.Pinned, &c.ShareToken, &c.CreatedAt, &c.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("conversation not found for token: %s", token)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 func (r *ConversationRepo) GetMessages(conversationID string) ([]MessageRecord, error) {

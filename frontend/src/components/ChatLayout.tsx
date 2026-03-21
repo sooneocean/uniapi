@@ -103,6 +103,9 @@ export default function ChatLayout({ onShowAccounts }: Props) {
           activeConversationId={activeConversationId}
           onNewChat={handleNewChat}
           onSelectConversation={handleSelectConversation}
+          onConversationsChange={() => {
+            getConversations().then((convs) => setConversations(convs)).catch(() => {});
+          }}
           onRegisterFocusSearch={(fn) => { focusSearchFnRef.current = fn; }}
         />
       </div>
