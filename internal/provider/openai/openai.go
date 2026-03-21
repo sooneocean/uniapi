@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/sooneocean/uniapi/internal/provider"
 )
@@ -122,7 +121,7 @@ func NewOpenAI(cfg provider.ProviderConfig, modelIDs []string, credFunc func() (
 		modelIDs: modelIDs,
 		credFunc: credFunc,
 		baseURL:  baseURL,
-		client:   &http.Client{Timeout: 120 * time.Second},
+		client:   provider.DefaultHTTPClient(),
 	}
 }
 

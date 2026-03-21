@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Conversation } from '../types';
 import { setFolder, togglePin, deleteConversation } from '../api/client';
@@ -50,7 +50,8 @@ function groupByDate(conversations: Conversation[]): Record<string, Conversation
 
 export default function Sidebar({ conversations, activeConversationId, onNewChat, onSelectConversation, onConversationsChange, onRegisterFocusSearch }: Props) {
   const { t } = useTranslation();
-  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [folderInput, setFolderInput] = useState('');
@@ -62,6 +63,12 @@ export default function Sidebar({ conversations, activeConversationId, onNewChat
       onRegisterFocusSearch(() => searchRef.current?.focus());
     }
   }, [onRegisterFocusSearch]);
+
+  // Debounce search input by 200 ms to avoid filtering on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchInput), 200);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   // Close context menu on outside click
   useEffect(() => {
@@ -76,9 +83,12 @@ export default function Sidebar({ conversations, activeConversationId, onNewChat
     return () => document.removeEventListener('mousedown', handleClick);
   }, [contextMenu]);
 
-  const filtered = search.trim()
-    ? conversations.filter((c) => c.title.toLowerCase().includes(search.toLowerCase()))
-    : conversations;
+  const filtered = useMemo(() =>
+    debouncedSearch.trim()
+      ? conversations.filter((c) => c.title.toLowerCase().includes(debouncedSearch.toLowerCase()))
+      : conversations,
+    [conversations, debouncedSearch]
+  );
 
   // Pinned conversations
   const pinned = filtered.filter((c) => c.pinned);
@@ -171,8 +181,8 @@ export default function Sidebar({ conversations, activeConversationId, onNewChat
         <input
           ref={searchRef}
           type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           placeholder={t('sidebar.search')}
           className="w-full bg-gray-700 text-gray-100 placeholder-gray-500 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
         />

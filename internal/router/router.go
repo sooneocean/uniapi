@@ -95,7 +95,7 @@ func (r *Router) findAccounts(model, providerName, userID string) []*account {
         return nil
     }
 
-    var result []*account
+    result := make([]*account, 0, len(candidates))
     for _, acc := range candidates {
         // Skip private accounts not owned by this user
         if acc.ownerUserID != "" && acc.ownerUserID != userID {

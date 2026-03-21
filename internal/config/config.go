@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -73,6 +74,25 @@ type Config struct {
 	DataDir       string           `mapstructure:"data_dir"`
 	Webhooks      []WebhookConfig  `mapstructure:"webhooks"`
 	ResponseCache CacheConfig      `mapstructure:"response_cache"`
+}
+
+// Validate checks the configuration for basic sanity.
+func (c *Config) Validate() error {
+	if c.Server.Port < 1 || c.Server.Port > 65535 {
+		return fmt.Errorf("invalid port: %d", c.Server.Port)
+	}
+	if c.Storage.RetentionDays < 0 {
+		return fmt.Errorf("invalid retention_days: %d", c.Storage.RetentionDays)
+	}
+	if c.Routing.MaxRetries < 0 {
+		return fmt.Errorf("invalid max_retries: %d", c.Routing.MaxRetries)
+	}
+	for _, w := range c.Webhooks {
+		if w.URL == "" {
+			return fmt.Errorf("webhook URL cannot be empty")
+		}
+	}
+	return nil
 }
 
 func Load(cfgPath string) (*Config, error) {

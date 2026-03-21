@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/sooneocean/uniapi/internal/provider"
 )
@@ -70,7 +69,7 @@ func NewGemini(cfg provider.ProviderConfig, modelIDs []string, credFunc func() (
 		modelIDs: modelIDs,
 		credFunc: credFunc,
 		baseURL:  baseURL,
-		client:   &http.Client{Timeout: 120 * time.Second},
+		client:   provider.DefaultHTTPClient(),
 	}
 }
 

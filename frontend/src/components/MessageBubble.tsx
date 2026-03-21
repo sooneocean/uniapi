@@ -1,14 +1,12 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import katex from 'katex';
-import 'katex/dist/katex.min.css';
-import mermaid from 'mermaid';
 import type { Message, ToolCall } from '../types';
 
-mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+// Lazy-load heavy libraries — only bundled into separate chunks, loaded on demand
+const MermaidDiagram = lazy(() => import('./MermaidDiagram'));
 
 function ToolCallCard({ toolCall }: { toolCall: ToolCall }) {
   let formattedArgs = toolCall.function.arguments;
@@ -49,33 +47,34 @@ function ToolResultCard({ content, toolCallId }: { content: string; toolCallId?:
   );
 }
 
-// Pre-process content to replace LaTeX with rendered HTML
-function renderLatex(text: string): string {
+// Pre-process content to replace LaTeX with rendered HTML.
+// KaTeX CSS is imported lazily alongside the dynamic import below.
+let katexModule: typeof import('katex') | null = null;
+
+async function loadKatex() {
+  if (!katexModule) {
+    const [mod] = await Promise.all([
+      import('katex'),
+      import('katex/dist/katex.min.css' as string),
+    ]);
+    katexModule = mod;
+  }
+  return katexModule;
+}
+
+// Synchronous render — only called after katexModule is loaded
+function renderLatexSync(text: string, katex: typeof import('katex')): string {
   // Block math: $$...$$
   text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
-    try { return katex.renderToString(math.trim(), { displayMode: true, throwOnError: false }); }
+    try { return katex.default.renderToString(math.trim(), { displayMode: true, throwOnError: false }); }
     catch { return `$$${math}$$`; }
   });
   // Inline math: $...$
   text = text.replace(/\$([^\$\n]+?)\$/g, (_, math) => {
-    try { return katex.renderToString(math.trim(), { displayMode: false, throwOnError: false }); }
+    try { return katex.default.renderToString(math.trim(), { displayMode: false, throwOnError: false }); }
     catch { return `$${math}$`; }
   });
   return text;
-}
-
-function MermaidDiagram({ code }: { code: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!ref.current) return;
-    const id = 'mermaid-' + Math.random().toString(36).slice(2);
-    mermaid.render(id, code).then(({ svg }) => {
-      if (ref.current) ref.current.innerHTML = svg;
-    }).catch(() => {
-      if (ref.current) ref.current.textContent = 'Diagram error';
-    });
-  }, [code]);
-  return <div ref={ref} className="my-2" />;
 }
 
 interface Props {
@@ -88,7 +87,19 @@ interface Props {
 export default function MessageBubble({ message, isLastAssistant, onEdit, onRegenerate }: Props) {
   const isUser = message.role === 'user';
   const isTool = message.role === 'tool';
-  const processedContent = isUser || isTool ? message.content : renderLatex(message.content);
+  const hasLatex = !isUser && !isTool && message.content.includes('$');
+  const [processedContent, setProcessedContent] = useState(message.content);
+
+  useEffect(() => {
+    if (!hasLatex) {
+      setProcessedContent(message.content);
+      return;
+    }
+    // Dynamically import KaTeX only when content contains '$'
+    loadKatex().then((katex) => {
+      setProcessedContent(renderLatexSync(message.content, katex));
+    });
+  }, [message.content, hasLatex]);
 
   // Tool result message
   if (isTool) {
@@ -136,7 +147,11 @@ export default function MessageBubble({ message, isLastAssistant, onEdit, onRege
                     const match = /language-(\w+)/.exec(className || '');
                     const inline = !match && !String(children).includes('\n');
                     if (!inline && match && match[1] === 'mermaid') {
-                      return <MermaidDiagram code={String(children)} />;
+                      return (
+                        <Suspense fallback={<div className="text-gray-500 text-sm py-2">Loading diagram...</div>}>
+                          <MermaidDiagram code={String(children)} />
+                        </Suspense>
+                      );
                     }
                     if (!inline && match) {
                       return (

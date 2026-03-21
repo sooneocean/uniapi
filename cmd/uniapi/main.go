@@ -119,6 +119,12 @@ func main() {
 		cfg.Routing.FailoverAttempts = 2
 	}
 
+	// Validate config
+	if err := cfg.Validate(); err != nil {
+		slog.Error("invalid config", "error", err)
+		os.Exit(1)
+	}
+
 	// Init structured logger
 	logger.Init(cfg.LogLevel)
 

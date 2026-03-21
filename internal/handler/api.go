@@ -291,8 +291,12 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 		}
 	}
 
+	// Enforce maximum request timeout to prevent hung connections
+	reqCtx, reqCancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
+	defer reqCancel()
+
 	start := time.Now()
-	resp, err := h.router.Route(c.Request.Context(), chatReq, userID)
+	resp, err := h.router.Route(reqCtx, chatReq, userID)
 	latency := time.Since(start)
 	if err != nil {
 		metrics.ProviderRequestsTotal.WithLabelValues(req.Model, req.Model, "error").Inc()
@@ -368,8 +372,12 @@ func (h *APIHandler) handleStream(c *gin.Context, req *provider.ChatRequest) {
 			userID = u
 		}
 	}
+	// Enforce maximum streaming timeout
+	streamCtx, streamCancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
+	defer streamCancel()
+
 	start := time.Now()
-	stream, err := h.router.RouteStream(c.Request.Context(), req, userID)
+	stream, err := h.router.RouteStream(streamCtx, req, userID)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "api_error", "message": err.Error()}})
 		return
@@ -388,7 +396,7 @@ func (h *APIHandler) handleStream(c *gin.Context, req *provider.ChatRequest) {
 
 	var tokensIn, tokensOut int
 
-	ctx := c.Request.Context()
+	ctx := streamCtx
 	w := c.Writer
 	encoder := json.NewEncoder(w) // reuse encoder across chunks — eliminates per-chunk allocation
 
@@ -489,6 +497,10 @@ func (h *APIHandler) CompareModels(c *gin.Context) {
 		Error     string  `json:"error,omitempty"`
 	}
 
+	// Enforce maximum compare timeout
+	cmpCtx, cmpCancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
+	defer cmpCancel()
+
 	results := make([]result, len(req.Models))
 	var wg sync.WaitGroup
 
@@ -504,7 +516,7 @@ func (h *APIHandler) CompareModels(c *gin.Context) {
 
 			chatReq := &provider.ChatRequest{Model: modelName, Messages: messages, MaxTokens: 4096}
 			start := time.Now()
-			resp, err := h.router.Route(c.Request.Context(), chatReq, userID)
+			resp, err := h.router.Route(cmpCtx, chatReq, userID)
 			latency := time.Since(start)
 
 			if err != nil {
