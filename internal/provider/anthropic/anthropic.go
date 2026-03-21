@@ -225,12 +225,13 @@ func (a *Anthropic) ChatCompletionStream(ctx context.Context, req *provider.Chat
 		return nil, fmt.Errorf("anthropic error (%d): %s", resp.StatusCode, string(b))
 	}
 
-	return &anthropicStream{reader: bufio.NewReader(resp.Body), body: resp.Body, model: req.Model}, nil
+	return &anthropicStream{reader: bufio.NewReader(resp.Body), body: resp.Body, ctx: ctx, model: req.Model}, nil
 }
 
 type anthropicStream struct {
 	reader    *bufio.Reader
 	body      io.ReadCloser
+	ctx       context.Context
 	model     string
 	done      bool
 	eventType string
@@ -242,6 +243,12 @@ func (s *anthropicStream) Next() (*provider.StreamEvent, error) {
 	for {
 		if s.done {
 			return nil, io.EOF
+		}
+		// Check context cancellation
+		select {
+		case <-s.ctx.Done():
+			return nil, s.ctx.Err()
+		default:
 		}
 		line, err := s.reader.ReadString('\n')
 		if err != nil {

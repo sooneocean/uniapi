@@ -200,12 +200,13 @@ func (o *OpenAI) ChatCompletionStream(ctx context.Context, req *provider.ChatReq
 		return nil, fmt.Errorf("openai error (%d): %s", resp.StatusCode, string(b))
 	}
 
-	return &sseStream{reader: bufio.NewReader(resp.Body), body: resp.Body, model: req.Model}, nil
+	return &sseStream{reader: bufio.NewReader(resp.Body), body: resp.Body, ctx: ctx, model: req.Model}, nil
 }
 
 type sseStream struct {
 	reader    *bufio.Reader
 	body      io.ReadCloser
+	ctx       context.Context
 	model     string
 	done      bool
 	tokensIn  int
@@ -216,6 +217,12 @@ func (s *sseStream) Next() (*provider.StreamEvent, error) {
 	for {
 		if s.done {
 			return nil, io.EOF
+		}
+		// Check context cancellation
+		select {
+		case <-s.ctx.Done():
+			return nil, s.ctx.Err()
+		default:
 		}
 		line, err := s.reader.ReadString('\n')
 		if err != nil {

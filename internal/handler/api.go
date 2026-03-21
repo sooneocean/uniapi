@@ -141,8 +141,17 @@ func (h *APIHandler) handleStream(c *gin.Context, req *provider.ChatRequest) {
 
 	var tokensIn, tokensOut int
 
+	ctx := c.Request.Context()
 	w := c.Writer
 	for {
+		select {
+		case <-ctx.Done():
+			// Client disconnected
+			stream.Close()
+			return
+		default:
+		}
+
 		event, err := stream.Next()
 		if err == io.EOF {
 			break
