@@ -42,12 +42,40 @@ const (
 	defaultMaxTokens    = 4096
 )
 
+// anthropicTool is a tool definition in Anthropic's wire format.
+type anthropicTool struct {
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	InputSchema interface{} `json:"input_schema"`
+}
+
+// anthropicToolUseBlock represents a tool_use content block in an Anthropic response.
+type anthropicToolUseBlock struct {
+	ID    string      `json:"id"`
+	Name  string      `json:"name"`
+	Input interface{} `json:"input"`
+}
+
+// anthropicToolResultBlock represents a tool_result content block for follow-up messages.
+type anthropicToolResultBlock struct {
+	Type      string `json:"type"`
+	ToolUseID string `json:"tool_use_id"`
+	Content   string `json:"content"`
+}
+
 // anthropicContentBlock is the wire format for a single content block in a message.
 type anthropicContentBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text,omitempty"`
 	// Used for image blocks:
 	Source *anthropicImageSource `json:"source,omitempty"`
+	// Used for tool_use blocks (request):
+	ID    string      `json:"id,omitempty"`
+	Name  string      `json:"name,omitempty"`
+	Input interface{} `json:"input,omitempty"`
+	// Used for tool_result blocks (request):
+	ToolUseID string `json:"tool_use_id,omitempty"`
+	Content   string `json:"content,omitempty"`
 }
 
 // anthropicImageSource describes an image in Anthropic's wire format.
@@ -66,17 +94,21 @@ type anthropicMessage struct {
 
 // anthropicRequest is the wire format sent to Anthropic.
 type anthropicRequest struct {
-	Model       string             `json:"model"`
+	Model       string          `json:"model"`
 	Messages    []anthropicMessage `json:"messages"`
-	MaxTokens   int                `json:"max_tokens"`
-	Temperature *float64           `json:"temperature,omitempty"`
-	Stream      bool               `json:"stream,omitempty"`
+	Tools       []anthropicTool `json:"tools,omitempty"`
+	MaxTokens   int             `json:"max_tokens"`
+	Temperature *float64        `json:"temperature,omitempty"`
+	Stream      bool            `json:"stream,omitempty"`
 }
 
 // anthropicContentResp is a content block in the Anthropic response.
 type anthropicContentResp struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type  string      `json:"type"`
+	Text  string      `json:"text"`
+	ID    string      `json:"id,omitempty"`
+	Name  string      `json:"name,omitempty"`
+	Input interface{} `json:"input,omitempty"`
 }
 
 // anthropicUsage holds token counts from Anthropic.
@@ -143,9 +175,31 @@ func (a *Anthropic) Models() []provider.Model {
 func convertRequest(req *provider.ChatRequest) *anthropicRequest {
 	msgs := make([]anthropicMessage, 0, len(req.Messages))
 	for _, m := range req.Messages {
+		// Anthropic doesn't support "system" as a message role within messages array
+		// (system is a top-level field), but we pass it through for compatibility.
 		blocks := make([]anthropicContentBlock, 0, len(m.Content))
 		for _, block := range m.Content {
-			if block.ImageURL != "" {
+			switch {
+			case block.ToolResult != nil:
+				// tool_result content block (for sending tool results back)
+				blocks = append(blocks, anthropicContentBlock{
+					Type:      "tool_result",
+					ToolUseID: block.ToolResult.ToolUseID,
+					Content:   block.ToolResult.Content,
+				})
+			case block.ToolUse != nil:
+				// tool_use content block (assistant message with tool call)
+				var inputVal interface{}
+				if block.ToolUse.Function.Arguments != "" {
+					_ = json.Unmarshal([]byte(block.ToolUse.Function.Arguments), &inputVal)
+				}
+				blocks = append(blocks, anthropicContentBlock{
+					Type:  "tool_use",
+					ID:    block.ToolUse.ID,
+					Name:  block.ToolUse.Function.Name,
+					Input: inputVal,
+				})
+			case block.ImageURL != "":
 				if strings.HasPrefix(block.ImageURL, "data:") {
 					mediaType, b64data := extractBase64Data(block.ImageURL)
 					blocks = append(blocks, anthropicContentBlock{
@@ -165,7 +219,7 @@ func convertRequest(req *provider.ChatRequest) *anthropicRequest {
 						},
 					})
 				}
-			} else {
+			default:
 				blocks = append(blocks, anthropicContentBlock{
 					Type: block.Type,
 					Text: block.Text,
@@ -183,30 +237,63 @@ func convertRequest(req *provider.ChatRequest) *anthropicRequest {
 		maxTokens = defaultMaxTokens
 	}
 
-	return &anthropicRequest{
+	anthReq := &anthropicRequest{
 		Model:       req.Model,
 		Messages:    msgs,
 		MaxTokens:   maxTokens,
 		Temperature: req.Temperature,
 		Stream:      req.Stream,
 	}
+	if len(req.Tools) > 0 {
+		anthReq.Tools = make([]anthropicTool, len(req.Tools))
+		for i, t := range req.Tools {
+			anthReq.Tools[i] = anthropicTool{
+				Name:        t.Name,
+				Description: t.Description,
+				InputSchema: t.InputSchema,
+			}
+		}
+	}
+	return anthReq
 }
 
 // convertResponse converts an Anthropic wire response to the internal ChatResponse.
 func convertResponse(resp *anthropicResponse) *provider.ChatResponse {
 	content := make([]provider.ContentBlock, 0, len(resp.Content))
+	var toolCalls []provider.ToolCall
 	for _, block := range resp.Content {
-		content = append(content, provider.ContentBlock{
-			Type: block.Type,
-			Text: block.Text,
-		})
+		if block.Type == "tool_use" {
+			// Convert input (interface{}) to JSON string for Arguments
+			argsBytes, _ := json.Marshal(block.Input)
+			call := provider.ToolCall{
+				ID:   block.ID,
+				Type: "function",
+			}
+			call.Function.Name = block.Name
+			call.Function.Arguments = string(argsBytes)
+			toolCalls = append(toolCalls, call)
+			content = append(content, provider.ContentBlock{
+				Type:    "tool_use",
+				ToolUse: &toolCalls[len(toolCalls)-1],
+			})
+		} else {
+			content = append(content, provider.ContentBlock{
+				Type: block.Type,
+				Text: block.Text,
+			})
+		}
+	}
+	stopReason := resp.StopReason
+	if len(toolCalls) > 0 && stopReason == "tool_use" {
+		stopReason = "tool_use"
 	}
 	return &provider.ChatResponse{
 		Content:    content,
 		Model:      resp.Model,
 		TokensIn:   resp.Usage.InputTokens,
 		TokensOut:  resp.Usage.OutputTokens,
-		StopReason: resp.StopReason,
+		StopReason: stopReason,
+		ToolCalls:  toolCalls,
 	}
 }
 

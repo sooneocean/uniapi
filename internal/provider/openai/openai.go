@@ -19,8 +19,10 @@ const defaultBaseURL = "https://api.openai.com"
 // openaiMessage is the wire format for OpenAI chat messages.
 // Content may be a plain string or a slice of content parts (for vision).
 type openaiMessage struct {
-	Role    string      `json:"role"`
-	Content interface{} `json:"content"` // string or []openaiContentPart
+	Role       string      `json:"role"`
+	Content    interface{} `json:"content"` // string or []openaiContentPart
+	ToolCallID string      `json:"tool_call_id,omitempty"`
+	ToolCalls  interface{} `json:"tool_calls,omitempty"` // for assistant messages with tool calls
 }
 
 // openaiContentPart is a single element in a multi-part message (vision).
@@ -39,16 +41,44 @@ type openaiImageURLPart struct {
 type openaiRequest struct {
 	Model       string          `json:"model"`
 	Messages    []openaiMessage `json:"messages"`
+	Tools       []openaiTool    `json:"tools,omitempty"`
 	MaxTokens   int             `json:"max_tokens,omitempty"`
 	Temperature *float64        `json:"temperature,omitempty"`
 	Stream      bool            `json:"stream,omitempty"`
 }
 
+// openaiToolFunction holds the function details for a tool definition.
+type openaiToolFunction struct {
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Parameters  interface{} `json:"parameters"`
+}
+
+// openaiTool is a tool definition sent to OpenAI.
+type openaiTool struct {
+	Type     string             `json:"type"`
+	Function openaiToolFunction `json:"function"`
+}
+
+// openaiToolCallFunction holds the name and arguments of a tool call.
+type openaiToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// openaiToolCall is a single tool call returned by OpenAI.
+type openaiToolCall struct {
+	ID       string                 `json:"id"`
+	Type     string                 `json:"type"`
+	Function openaiToolCallFunction `json:"function"`
+}
+
 // openaiResponseMessage is the message structure inside an OpenAI response choice.
 // The response content is always a plain string.
 type openaiResponseMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string           `json:"role"`
+	Content   string           `json:"content"`
+	ToolCalls []openaiToolCall `json:"tool_calls,omitempty"`
 }
 
 // openaiChoice represents a single choice in the OpenAI response.
@@ -127,10 +157,75 @@ func hasImageBlocks(blocks []provider.ContentBlock) bool {
 	return false
 }
 
+// convertTools converts internal Tool definitions to OpenAI wire format.
+func convertTools(tools []provider.Tool) []openaiTool {
+	oaiTools := make([]openaiTool, 0, len(tools))
+	for _, t := range tools {
+		oaiTools = append(oaiTools, openaiTool{
+			Type: "function",
+			Function: openaiToolFunction{
+				Name:        t.Name,
+				Description: t.Description,
+				Parameters:  t.InputSchema,
+			},
+		})
+	}
+	return oaiTools
+}
+
 // convertRequest converts an internal ChatRequest to the OpenAI wire format.
 func convertRequest(req *provider.ChatRequest) *openaiRequest {
 	msgs := make([]openaiMessage, 0, len(req.Messages))
 	for _, m := range req.Messages {
+		// Handle tool result messages
+		if m.Role == "tool" {
+			content := ""
+			toolCallID := ""
+			for _, block := range m.Content {
+				if block.ToolResult != nil {
+					toolCallID = block.ToolResult.ToolUseID
+					content = block.ToolResult.Content
+				} else {
+					content += block.Text
+				}
+			}
+			msgs = append(msgs, openaiMessage{Role: "tool", Content: content, ToolCallID: toolCallID})
+			continue
+		}
+		// Handle assistant messages that may contain tool calls
+		if m.Role == "assistant" {
+			hasToolUse := false
+			for _, block := range m.Content {
+				if block.ToolUse != nil {
+					hasToolUse = true
+					break
+				}
+			}
+			if hasToolUse {
+				var toolCalls []openaiToolCall
+				text := ""
+				for _, block := range m.Content {
+					if block.ToolUse != nil {
+						toolCalls = append(toolCalls, openaiToolCall{
+							ID:   block.ToolUse.ID,
+							Type: block.ToolUse.Type,
+							Function: openaiToolCallFunction{
+								Name:      block.ToolUse.Function.Name,
+								Arguments: block.ToolUse.Function.Arguments,
+							},
+						})
+					} else {
+						text += block.Text
+					}
+				}
+				var contentVal interface{} = text
+				if text == "" {
+					contentVal = nil
+				}
+				msgs = append(msgs, openaiMessage{Role: "assistant", Content: contentVal, ToolCalls: toolCalls})
+				continue
+			}
+		}
 		if hasImageBlocks(m.Content) {
 			// Use multi-part content format for vision messages.
 			parts := make([]openaiContentPart, 0, len(m.Content))
@@ -156,25 +251,49 @@ func convertRequest(req *provider.ChatRequest) *openaiRequest {
 			msgs = append(msgs, openaiMessage{Role: m.Role, Content: text})
 		}
 	}
-	return &openaiRequest{
+	oaiReq := &openaiRequest{
 		Model:       req.Model,
 		Messages:    msgs,
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
 		Stream:      req.Stream,
 	}
+	if len(req.Tools) > 0 {
+		oaiReq.Tools = convertTools(req.Tools)
+	}
+	return oaiReq
 }
 
 // convertResponse converts an OpenAI wire response to the internal ChatResponse.
 func convertResponse(resp *openaiResponse) *provider.ChatResponse {
 	var content []provider.ContentBlock
 	var stopReason string
+	var toolCalls []provider.ToolCall
 	if len(resp.Choices) > 0 {
 		choice := resp.Choices[0]
-		content = []provider.ContentBlock{
-			{Type: "text", Text: choice.Message.Content},
-		}
 		stopReason = choice.FinishReason
+		if len(choice.Message.ToolCalls) > 0 {
+			stopReason = "tool_use"
+			for _, tc := range choice.Message.ToolCalls {
+				call := provider.ToolCall{
+					ID:   tc.ID,
+					Type: tc.Type,
+				}
+				call.Function.Name = tc.Function.Name
+				call.Function.Arguments = tc.Function.Arguments
+				toolCalls = append(toolCalls, call)
+				// Also add tool_use content blocks
+				content = append(content, provider.ContentBlock{
+					Type:    "tool_use",
+					ToolUse: &call,
+				})
+			}
+		}
+		if choice.Message.Content != "" {
+			content = append([]provider.ContentBlock{{Type: "text", Text: choice.Message.Content}}, content...)
+		} else if len(toolCalls) == 0 {
+			content = []provider.ContentBlock{{Type: "text", Text: ""}}
+		}
 	}
 	return &provider.ChatResponse{
 		Content:    content,
@@ -182,6 +301,7 @@ func convertResponse(resp *openaiResponse) *provider.ChatResponse {
 		TokensIn:   resp.Usage.PromptTokens,
 		TokensOut:  resp.Usage.CompletionTokens,
 		StopReason: stopReason,
+		ToolCalls:  toolCalls,
 	}
 }
 

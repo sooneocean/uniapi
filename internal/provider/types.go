@@ -3,9 +3,23 @@ package provider
 import "context"
 
 type ContentBlock struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	ImageURL string `json:"image_url,omitempty"` // base64 data URL or http URL
+	Type     string    `json:"type"`               // "text", "image", "tool_use", "tool_result"
+	Text     string    `json:"text,omitempty"`
+	ImageURL string    `json:"image_url,omitempty"` // base64 data URL or http URL
+	ToolUse  *ToolCall `json:"tool_use,omitempty"`
+	ToolResult *struct {
+		ToolUseID string `json:"tool_use_id"`
+		Content   string `json:"content"`
+	} `json:"tool_result,omitempty"`
+}
+
+type ToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"` // "function"
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"` // JSON string
+	} `json:"function"`
 }
 
 type Message struct {
@@ -34,7 +48,8 @@ type ChatResponse struct {
 	Model      string         `json:"model"`
 	TokensIn   int            `json:"tokens_in"`
 	TokensOut  int            `json:"tokens_out"`
-	StopReason string         `json:"stop_reason,omitempty"`
+	StopReason string         `json:"stop_reason,omitempty"` // "stop", "tool_use", "end_turn"
+	ToolCalls  []ToolCall     `json:"tool_calls,omitempty"`
 }
 
 type StreamEvent struct {

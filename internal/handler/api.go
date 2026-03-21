@@ -40,9 +40,21 @@ func NewAPIHandlerWithCache(r *router.Router, rec *usage.Recorder, webhookMgr *w
 	return &APIHandler{router: r, recorder: rec, webhookMgr: webhookMgr, respCache: respCache, db: db, aliasCache: mc}
 }
 
+type chatToolFunction struct {
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+	Parameters  interface{} `json:"parameters"`
+}
+
+type chatTool struct {
+	Type     string            `json:"type"`
+	Function chatToolFunction  `json:"function"`
+}
+
 type chatCompletionRequest struct {
 	Model       string     `json:"model" binding:"required"`
 	Messages    []chatMsg  `json:"messages" binding:"required"`
+	Tools       []chatTool `json:"tools,omitempty"`
 	MaxTokens   int        `json:"max_tokens,omitempty"`
 	Temperature *float64   `json:"temperature,omitempty"`
 	Stream      bool       `json:"stream,omitempty"`
@@ -50,8 +62,10 @@ type chatCompletionRequest struct {
 }
 
 type chatMsg struct {
-	Role    string      `json:"role"`
-	Content interface{} `json:"content"` // string or []ContentBlock
+	Role       string      `json:"role"`
+	Content    interface{} `json:"content"` // string or []ContentBlock
+	ToolCallID string      `json:"tool_call_id,omitempty"`
+	ToolCalls  interface{} `json:"tool_calls,omitempty"`
 }
 
 func (h *APIHandler) ChatCompletions(c *gin.Context) {
@@ -62,6 +76,58 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 	}
 	messages := make([]provider.Message, len(req.Messages))
 	for i, m := range req.Messages {
+		// Handle tool role messages (tool results)
+		if m.Role == "tool" {
+			content := ""
+			switch v := m.Content.(type) {
+			case string:
+				content = v
+			}
+			toolResult := &struct {
+				ToolUseID string `json:"tool_use_id"`
+				Content   string `json:"content"`
+			}{
+				ToolUseID: m.ToolCallID,
+				Content:   content,
+			}
+			messages[i] = provider.Message{
+				Role: "tool",
+				Content: []provider.ContentBlock{{
+					Type:       "tool_result",
+					ToolResult: toolResult,
+				}},
+			}
+			continue
+		}
+		// Handle assistant messages with tool_calls
+		if m.Role == "assistant" && m.ToolCalls != nil {
+			var blocks []provider.ContentBlock
+			// Parse text content if present
+			if v, ok := m.Content.(string); ok && v != "" {
+				blocks = append(blocks, provider.ContentBlock{Type: "text", Text: v})
+			}
+			// Parse tool_calls
+			if tcList, ok := m.ToolCalls.([]interface{}); ok {
+				for _, tc := range tcList {
+					if tcMap, ok := tc.(map[string]interface{}); ok {
+						call := &provider.ToolCall{
+							ID:   fmt.Sprintf("%v", tcMap["id"]),
+							Type: fmt.Sprintf("%v", tcMap["type"]),
+						}
+						if fn, ok := tcMap["function"].(map[string]interface{}); ok {
+							call.Function.Name = fmt.Sprintf("%v", fn["name"])
+							call.Function.Arguments = fmt.Sprintf("%v", fn["arguments"])
+						}
+						blocks = append(blocks, provider.ContentBlock{
+							Type:    "tool_use",
+							ToolUse: call,
+						})
+					}
+				}
+			}
+			messages[i] = provider.Message{Role: "assistant", Content: blocks}
+			continue
+		}
 		switch v := m.Content.(type) {
 		case string:
 			if len(v) > 1_000_000 {
@@ -101,6 +167,16 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 	chatReq := &provider.ChatRequest{
 		Model: req.Model, Messages: messages, MaxTokens: req.MaxTokens,
 		Temperature: req.Temperature, Stream: req.Stream, Provider: req.Provider,
+	}
+	if len(req.Tools) > 0 {
+		chatReq.Tools = make([]provider.Tool, len(req.Tools))
+		for i, t := range req.Tools {
+			chatReq.Tools[i] = provider.Tool{
+				Name:        t.Function.Name,
+				Description: t.Function.Description,
+				InputSchema: t.Function.Parameters,
+			}
+		}
 	}
 
 	// Resolve model alias
@@ -170,12 +246,14 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	content := ""
-	if len(resp.Content) > 0 {
-		content = resp.Content[0].Text
+	for _, block := range resp.Content {
+		if block.Type == "text" {
+			content += block.Text
+		}
 	}
 
-	// Store in response cache
-	if h.respCache != nil {
+	// Store in response cache (only when no tool calls)
+	if h.respCache != nil && len(resp.ToolCalls) == 0 {
 		cacheKey := h.respCache.Key(chatReq.Model, chatReq.Messages)
 		h.respCache.Set(cacheKey, &CachedResponse{
 			Content:   content,
@@ -207,10 +285,18 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 	metrics.TokensProcessed.WithLabelValues("input", resp.Model).Add(float64(resp.TokensIn))
 	metrics.TokensProcessed.WithLabelValues("output", resp.Model).Add(float64(resp.TokensOut))
 
+	finishReason := "stop"
+	if resp.StopReason == "tool_use" {
+		finishReason = "tool_calls"
+	}
+	message := gin.H{"role": "assistant", "content": content}
+	if len(resp.ToolCalls) > 0 {
+		message["tool_calls"] = resp.ToolCalls
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"id": "chatcmpl-" + uuid.New().String()[:8], "object": "chat.completion",
 		"created": time.Now().Unix(), "model": resp.Model,
-		"choices": []gin.H{{"index": 0, "message": gin.H{"role": "assistant", "content": content}, "finish_reason": "stop"}},
+		"choices": []gin.H{{"index": 0, "message": message, "finish_reason": finishReason}},
 		"usage": gin.H{"prompt_tokens": resp.TokensIn, "completion_tokens": resp.TokensOut, "total_tokens": resp.TokensIn + resp.TokensOut},
 		"x_uniapi": gin.H{"latency_ms": latency.Milliseconds()},
 	})

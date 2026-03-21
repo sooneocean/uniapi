@@ -65,7 +65,7 @@ export async function sendMessageStream(
   model: string,
   messages: { role: string; content: string }[],
   onChunk: (text: string) => void,
-  onDone: (usage: { tokensIn: number; tokensOut: number; latencyMs: number }) => void,
+  onDone: (usage: { tokensIn: number; tokensOut: number; latencyMs: number; toolCalls?: import('../types').ToolCall[]; finishReason?: string }) => void,
   images?: string[],
 ): Promise<void> {
   const apiMessages = buildApiMessages(messages, images);
@@ -98,11 +98,45 @@ export async function sendMessageStream(
       }
       try {
         const chunk = JSON.parse(data);
-        const content = chunk.choices?.[0]?.delta?.content;
+        const choice = chunk.choices?.[0];
+        const content = choice?.delta?.content;
         if (content) onChunk(content);
+        // Detect tool_calls in streaming delta (some providers emit them)
+        if (choice?.finish_reason === 'tool_calls' && choice?.delta?.tool_calls) {
+          onDone({ tokensIn: 0, tokensOut: 0, latencyMs: 0, toolCalls: choice.delta.tool_calls, finishReason: 'tool_calls' });
+          return;
+        }
       } catch {}
     }
   }
+}
+
+export async function sendMessageNonStream(
+  model: string,
+  messages: { role: string; content: string; tool_call_id?: string; tool_calls?: any[] }[],
+  tools?: any[],
+  images?: string[],
+): Promise<{
+  content: string;
+  toolCalls?: any[];
+  finishReason: string;
+  tokensIn: number;
+  tokensOut: number;
+  latencyMs: number;
+}> {
+  const apiMessages = buildApiMessages(messages as any, images);
+  const body: any = { model, messages: apiMessages };
+  if (tools && tools.length > 0) body.tools = tools;
+  const resp = await api.post('/v1/chat/completions', body);
+  const choice = resp.data.choices[0];
+  return {
+    content: choice.message.content ?? '',
+    toolCalls: choice.message.tool_calls,
+    finishReason: choice.finish_reason,
+    tokensIn: resp.data.usage.prompt_tokens,
+    tokensOut: resp.data.usage.completion_tokens,
+    latencyMs: resp.data.x_uniapi?.latency_ms ?? 0,
+  };
 }
 
 export async function getStatus(): Promise<{ needs_setup: boolean; authenticated: boolean }> {

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { v4 as uuidv4 } from 'uuid';
-import type { Message } from '../types';
+import type { Message, ToolCall } from '../types';
 import {
   sendMessageStream,
   getConversation,
@@ -163,10 +163,17 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
         },
         (usage) => {
           finalUsage = usage;
+          const toolCalls = (usage as any).toolCalls as ToolCall[] | undefined;
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
-                ? { ...m, tokensIn: usage.tokensIn, tokensOut: usage.tokensOut, latencyMs: usage.latencyMs }
+                ? {
+                    ...m,
+                    tokensIn: usage.tokensIn,
+                    tokensOut: usage.tokensOut,
+                    latencyMs: usage.latencyMs,
+                    ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
+                  }
                 : m
             )
           );
