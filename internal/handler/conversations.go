@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"database/sql"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -29,6 +31,7 @@ type ConversationHandler struct {
 	convoRepo *repo.ConversationRepo
 	router    *router.Router
 	audit     *audit.Logger
+	db        *sql.DB
 }
 
 // NewConversationHandler creates a new ConversationHandler.
@@ -38,6 +41,61 @@ func NewConversationHandler(convoRepo *repo.ConversationRepo, rtr *router.Router
 		router:    rtr,
 		audit:     auditLogger,
 	}
+}
+
+// SetDB wires a database connection into the handler for search.
+func (h *ConversationHandler) SetDB(db *sql.DB) {
+	h.db = db
+}
+
+// GET /api/search?q=keyword&limit=20
+func (h *ConversationHandler) SearchMessages(c *gin.Context) {
+	userID, ok := userIDFromContext(c)
+	if !ok {
+		return
+	}
+
+	query := c.Query("q")
+	if query == "" {
+		badRequest(c, "query required")
+		return
+	}
+	limit := 20
+
+	rows, err := h.db.Query(`
+		SELECT m.id, m.conversation_id, m.role, SUBSTR(m.content, 1, 200) as preview,
+		       m.created_at, c.title
+		FROM messages m
+		JOIN conversations c ON c.id = m.conversation_id
+		WHERE c.user_id = ? AND LOWER(m.content) LIKE ?
+		ORDER BY m.created_at DESC
+		LIMIT ?
+	`, userID, "%"+strings.ToLower(query)+"%", limit)
+	if err != nil {
+		serverError(c, errOperationFailed)
+		return
+	}
+	defer rows.Close()
+
+	var results []gin.H
+	for rows.Next() {
+		var id, convoID, role, preview, createdAt, title string
+		if err := rows.Scan(&id, &convoID, &role, &preview, &createdAt, &title); err != nil {
+			continue
+		}
+		results = append(results, gin.H{
+			"message_id":          id,
+			"conversation_id":     convoID,
+			"role":                role,
+			"preview":             preview,
+			"created_at":          createdAt,
+			"conversation_title":  title,
+		})
+	}
+	if results == nil {
+		results = []gin.H{}
+	}
+	success(c, results)
 }
 
 // GET /api/conversations

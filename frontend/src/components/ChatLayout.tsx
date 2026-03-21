@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import ChatArea from './ChatArea';
 import ShortcutHelp from './ShortcutHelp';
 import HeaderControls from './HeaderControls';
+import SearchModal from './SearchModal';
 import { getMe, logout, getConversations, createConversation } from '../api/client';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
@@ -31,11 +32,11 @@ export default function ChatLayout({ onShowAccounts, onShowPlayground }: Props) 
   const [showRooms, setShowRooms] = useState(false);
   const [userRole, setUserRole] = useState<string>('member');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showSearchModal, setShowSearchModal] = useState(false);
 
   const focusSearchFnRef = useRef<(() => void) | null>(null);
   const focusInputFnRef = useRef<(() => void) | null>(null);
 
-  const focusSearch = useCallback(() => focusSearchFnRef.current?.(), []);
   const focusInput = useCallback(() => focusInputFnRef.current?.(), []);
 
   useEffect(() => {
@@ -79,7 +80,7 @@ export default function ChatLayout({ onShowAccounts, onShowPlayground }: Props) 
   };
 
   useKeyboardShortcuts([
-    { key: 'k', ctrl: true, action: focusSearch, description: 'Search' },
+    { key: 'k', ctrl: true, action: () => setShowSearchModal(true), description: 'Search' },
     { key: 'n', ctrl: true, action: () => handleNewChat(), description: 'New chat' },
     { key: ',', ctrl: true, action: () => setShowSettings(true), description: 'Settings' },
     { key: '/', ctrl: true, action: focusInput, description: 'Focus input' },
@@ -206,6 +207,17 @@ export default function ChatLayout({ onShowAccounts, onShowPlayground }: Props) 
           <CompareMode onClose={() => setShowCompare(false)} />
         )}
       </Suspense>
+
+      {showSearchModal && (
+        <SearchModal
+          onClose={() => setShowSearchModal(false)}
+          onSelectConversation={(id) => {
+            setActiveConversationId(id);
+            setShowSearchModal(false);
+            setSidebarOpen(false);
+          }}
+        />
+      )}
 
       {showRooms && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">

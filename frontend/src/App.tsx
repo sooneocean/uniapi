@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, useEffect } from 'react';
 import { getStatus } from './api/client';
 import './i18n';
+import { ToastProvider } from './components/Toast';
 
 // Eager load (small, always needed)
 import LoginPage from './components/LoginPage';
@@ -30,9 +31,11 @@ function App() {
   // If this is a shared conversation link, render read-only view immediately
   if (sharedToken) {
     return (
-      <Suspense fallback={<Loading />}>
-        <SharedView token={sharedToken} />
-      </Suspense>
+      <ToastProvider>
+        <Suspense fallback={<Loading />}>
+          <SharedView token={sharedToken} />
+        </Suspense>
+      </ToastProvider>
     );
   }
 
@@ -52,17 +55,19 @@ function App() {
   if (state === 'login') return <LoginPage onLogin={() => setState('chat')} />;
 
   return (
-    <Suspense fallback={<Loading />}>
-      {state === 'chat' && page === 'accounts' && (
-        <MyAccounts onBack={() => setPage('chat')} />
-      )}
-      {state === 'chat' && page === 'playground' && (
-        <APIPlayground onBack={() => setPage('chat')} />
-      )}
-      {state === 'chat' && page === 'chat' && (
-        <ChatLayout onShowAccounts={() => setPage('accounts')} onShowPlayground={() => setPage('playground')} />
-      )}
-    </Suspense>
+    <ToastProvider>
+      <Suspense fallback={<Loading />}>
+        {state === 'chat' && page === 'accounts' && (
+          <MyAccounts onBack={() => setPage('chat')} />
+        )}
+        {state === 'chat' && page === 'playground' && (
+          <APIPlayground onBack={() => setPage('chat')} />
+        )}
+        {state === 'chat' && page === 'chat' && (
+          <ChatLayout onShowAccounts={() => setPage('accounts')} onShowPlayground={() => setPage('playground')} />
+        )}
+      </Suspense>
+    </ToastProvider>
   );
 }
 

@@ -361,6 +361,19 @@ export async function updateTemplate(id: string, data: any) { return (await api.
 export async function deleteTemplate(id: string) { await api.delete(`/api/templates/${id}`); }
 export async function useTemplate(id: string) { return (await api.post(`/api/templates/${id}/use`)).data; }
 
+// Full-text message search
+export async function searchMessages(query: string) {
+  return (await api.get(`/api/search?q=${encodeURIComponent(query)}`)).data;
+}
+
+// Scheduled tasks
+export async function getScheduledTasks() { return (await api.get('/api/scheduled')).data; }
+export async function createScheduledTask(data: { model: string; prompt: string; system_prompt?: string; run_at: string }) {
+  return (await api.post('/api/scheduled', data)).data;
+}
+export async function deleteScheduledTask(id: string) { await api.delete(`/api/scheduled/${id}`); }
+export async function getScheduledTaskResult(id: string) { return (await api.get(`/api/scheduled/${id}/result`)).data; }
+
 // Data Export / Import
 export async function exportAllData() {
   const resp = await api.get('/api/export', { responseType: 'blob' });

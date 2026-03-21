@@ -329,6 +329,14 @@ func (h *APIHandler) handleNonStream(c *gin.Context, chatReq *provider.ChatReque
 		return
 	}
 
+	// Agent loop: if tool_calls returned and plugin manager is available, auto-execute
+	if len(resp.ToolCalls) > 0 && h.pluginMgr != nil {
+		agentResp, agentErr := runAgentLoop(reqCtx, chatReq, h.router.Route, h.pluginMgr, userID)
+		if agentErr == nil {
+			resp = agentResp
+		}
+	}
+
 	content := ""
 	for _, block := range resp.Content {
 		if block.Type == "text" {

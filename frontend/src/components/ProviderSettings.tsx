@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getProviders, addProvider, deleteProvider, getOAuthProviders, getOAuthAccounts, unbindAccount, reauthAccount, getProviderTemplates } from '../api/client';
 import SessionTokenDialog from './SessionTokenDialog';
+import { useToast } from './Toast';
 
 interface Provider {
   id: string;
@@ -39,6 +40,7 @@ interface ProviderTemplate {
 }
 
 export default function ProviderSettings() {
+  const { addToast } = useToast();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -142,6 +144,7 @@ export default function ProviderSettings() {
       setTplApiKey('');
       setTplLabel('');
       await load();
+      addToast('success', 'Provider saved');
     } catch {
       setError('Failed to add provider');
     } finally {
@@ -171,6 +174,7 @@ export default function ProviderSettings() {
       setFormModels('');
       setFormBaseUrl('');
       await load();
+      addToast('success', 'Provider saved');
     } catch {
       setError('Failed to add provider');
     } finally {
@@ -488,7 +492,7 @@ export default function ProviderSettings() {
           displayName={sessionDialog.displayName}
           shared={true}
           onClose={() => setSessionDialog(null)}
-          onSuccess={() => { setSessionDialog(null); loadOAuth(); }}
+          onSuccess={() => { setSessionDialog(null); loadOAuth(); addToast('success', 'Account connected'); }}
         />
       )}
     </div>

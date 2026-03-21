@@ -14,8 +14,9 @@ const KnowledgeBase = lazy(() => import('./KnowledgeBase'));
 const PromptTemplates = lazy(() => import('./PromptTemplates'));
 const DataSettings = lazy(() => import('./DataSettings'));
 const ModelAliases = lazy(() => import('./ModelAliases'));
+const ScheduledTasks = lazy(() => import('./ScheduledTasks'));
 
-type Tab = 'dashboard' | 'providers' | 'users' | 'usage' | 'analytics' | 'apikeys' | 'aliases' | 'knowledge' | 'plugins' | 'templates' | 'workflows' | 'themes' | 'data';
+type Tab = 'dashboard' | 'providers' | 'users' | 'usage' | 'analytics' | 'apikeys' | 'aliases' | 'knowledge' | 'plugins' | 'templates' | 'workflows' | 'themes' | 'data' | 'schedule';
 
 interface SettingsProps {
   onClose: () => void;
@@ -44,6 +45,7 @@ export default function Settings({ onClose, userRole }: SettingsProps) {
     { id: 'workflows', label: 'Workflows' },
     { id: 'themes', label: 'Themes' },
     { id: 'data', label: 'Data' },
+    { id: 'schedule', label: 'Schedule' },
   ];
 
   const visibleTabs = tabs.filter((t) => !t.adminOnly || userRole === 'admin');
@@ -96,6 +98,7 @@ export default function Settings({ onClose, userRole }: SettingsProps) {
             {activeTab === 'workflows' && <WorkflowBuilder />}
             {activeTab === 'themes' && <ThemeEditor />}
             {activeTab === 'data' && <DataSettings />}
+            {activeTab === 'schedule' && <ScheduledTasks />}
           </Suspense>
         </div>
       </div>

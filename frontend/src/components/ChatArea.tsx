@@ -12,6 +12,7 @@ import {
   shareConversation,
   unshareConversation,
 } from '../api/client';
+import { useToast } from './Toast';
 import ModelSelector from './ModelSelector';
 import MessageBubble from './MessageBubble';
 import StatusBar from './StatusBar';
@@ -29,6 +30,7 @@ interface Props {
 
 export default function ChatArea({ conversationId, onConversationTitleUpdate, onRegisterFocusInput }: Props) {
   const { t } = useTranslation();
+  const { addToast } = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationTitle, setConversationTitle] = useState('');
   const [input, setInput] = useState('');
@@ -36,6 +38,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [loading, setLoading] = useState(false);
+  const [agentExecuting, setAgentExecuting] = useState(false);
   const [lastStats, setLastStats] = useState({ tokensIn: 0, tokensOut: 0, latencyMs: 0 });
   const [systemPrompt, setSystemPrompt] = useState('');
   const [streamingSpeed, setStreamingSpeed] = useState(0);
@@ -166,6 +169,9 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
         (usage) => {
           finalUsage = usage;
           const toolCalls = (usage as any).toolCalls as ToolCall[] | undefined;
+          if (toolCalls && toolCalls.length > 0) {
+            setAgentExecuting(true);
+          }
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
@@ -204,7 +210,13 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
           }).catch(() => {});
         }
       }
-    } catch {
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 429) {
+        addToast('warning', 'Quota limit reached');
+      } else {
+        addToast('error', 'Provider error');
+      }
       setMessages((prev) =>
         prev.map((m) =>
           m.id === assistantId
@@ -214,6 +226,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
       );
     } finally {
       setLoading(false);
+      setAgentExecuting(false);
       setStreamingSpeed(0);
     }
   };
@@ -504,6 +517,13 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
           <div className="flex justify-start mb-4">
             <div className="bg-gray-700 rounded-2xl px-4 py-3">
               <span className="text-gray-300 text-sm animate-pulse">...</span>
+            </div>
+          </div>
+        )}
+        {agentExecuting && (
+          <div className="flex justify-start mb-4">
+            <div className="bg-indigo-900 border border-indigo-600 rounded-2xl px-4 py-3">
+              <span className="text-indigo-300 text-sm animate-pulse">🤖 Agent executing tools...</span>
             </div>
           </div>
         )}

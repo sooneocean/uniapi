@@ -31,6 +31,7 @@ import (
 	"github.com/sooneocean/uniapi/internal/rag"
 	"github.com/sooneocean/uniapi/internal/repo"
 	"github.com/sooneocean/uniapi/internal/router"
+	"github.com/sooneocean/uniapi/internal/scheduler"
 	"github.com/sooneocean/uniapi/internal/usage"
 	"github.com/sooneocean/uniapi/internal/web"
 	"github.com/sooneocean/uniapi/internal/webhook"
@@ -290,6 +291,7 @@ func main() {
 	authHandler.SetWebhookManager(webhookMgr)
 	settingsHandler := handler.NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database, auditLogger, registerAccount, rtr)
 	convoHandler := handler.NewConversationHandler(convoRepo, rtr, auditLogger)
+	convoHandler.SetDB(database.DB)
 	systemPromptRepo := repo.NewSystemPromptRepo(database)
 	promptHandler := handler.NewSystemPromptHandler(systemPromptRepo)
 	usageHandler := handler.NewUsageHandler(database, recorder, auditLogger)
@@ -306,6 +308,13 @@ func main() {
 	apiHandler := handler.NewAPIHandlerWithCache(rtr, recorder, webhookMgr, respCache, database.DB, memCache)
 	apiHandler.SetRAGManager(ragMgr)
 	apiHandler.SetPluginManager(pluginMgr)
+	// Scheduler
+	sched := scheduler.New(database.DB, rtr.Route)
+	sched.Start()
+	defer sched.Stop()
+
+	schedulerHandler := handler.NewSchedulerHandler(database.DB, sched)
+
 	quotaEngine := quota.NewEngine(database.DB, quota.Config{
 		DailyLimitUSD:   cfg.QuotaDefaults.DailyLimitUSD,
 		MonthlyLimitUSD: cfg.QuotaDefaults.MonthlyLimitUSD,
@@ -320,7 +329,7 @@ func main() {
 		usageHandler, adminHandler, oauthHandler, modelAliasHandler,
 		knowledgeHandler, pluginHandler, templatesHandler,
 		roomsHandler, workflowsHandler, themesHandler, apiHandler,
-		quotaHandler,
+		quotaHandler, schedulerHandler,
 	)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -378,6 +387,7 @@ func registerRoutes(
 	themesHandler *handler.ThemesHandler,
 	apiHandler *handler.APIHandler,
 	quotaHandler *handler.QuotaHandler,
+	schedulerHandler *handler.SchedulerHandler,
 ) {
 	loginLimiter := handler.RateLimitMiddleware(memCache, 10, 1*time.Minute) // 10 attempts per minute
 
@@ -425,6 +435,9 @@ func registerRoutes(
 	apiAuth.POST("/conversations/:id/share", convoHandler.ShareConversation)
 	apiAuth.DELETE("/conversations/:id/share", convoHandler.UnshareConversation)
 	engine.GET("/api/shared/:token", convoHandler.GetSharedConversation)
+
+	// Full-text search
+	apiAuth.GET("/search", convoHandler.SearchMessages)
 
 	// System prompts
 	apiAuth.GET("/system-prompts", promptHandler.ListSystemPrompts)
@@ -498,6 +511,12 @@ func registerRoutes(
 	apiAuth.PUT("/workflows/:id", workflowsHandler.Update)
 	apiAuth.DELETE("/workflows/:id", workflowsHandler.Delete)
 	apiAuth.POST("/workflows/:id/run", workflowsHandler.Run)
+
+	// Scheduled tasks
+	apiAuth.GET("/scheduled", schedulerHandler.List)
+	apiAuth.POST("/scheduled", schedulerHandler.Create)
+	apiAuth.DELETE("/scheduled/:id", schedulerHandler.Delete)
+	apiAuth.GET("/scheduled/:id/result", schedulerHandler.GetResult)
 
 	// Themes
 	apiAuth.GET("/themes", themesHandler.List)
