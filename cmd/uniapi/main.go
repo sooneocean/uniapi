@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -38,6 +39,53 @@ import (
 )
 
 var version = "dev"
+
+// credentialCache is a thread-safe cache for account credentials.
+type credentialCache struct {
+	mu          sync.RWMutex
+	cred        string
+	authType    string
+	lastRefresh time.Time
+	accountID   string
+	accountRepo *repo.AccountRepo
+}
+
+func newCredentialCache(accID string, initialCred, initialAuthType string, accountRepo *repo.AccountRepo) *credentialCache {
+	return &credentialCache{
+		cred:        initialCred,
+		authType:    initialAuthType,
+		lastRefresh: time.Now(),
+		accountID:   accID,
+		accountRepo: accountRepo,
+	}
+}
+
+func (cc *credentialCache) Get() (string, string) {
+	cc.mu.RLock()
+	if time.Since(cc.lastRefresh) <= 5*time.Minute {
+		cred, authType := cc.cred, cc.authType
+		cc.mu.RUnlock()
+		return cred, authType
+	}
+	cc.mu.RUnlock()
+
+	// Need refresh — acquire write lock.
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	// Double-check after acquiring write lock.
+	if time.Since(cc.lastRefresh) <= 5*time.Minute {
+		return cc.cred, cc.authType
+	}
+
+	fresh, err := cc.accountRepo.GetByID(cc.accountID)
+	if err != nil {
+		return cc.cred, cc.authType // return stale on error
+	}
+	cc.cred = fresh.Credential
+	cc.authType = fresh.AuthType
+	cc.lastRefresh = time.Now()
+	return cc.cred, cc.authType
+}
 
 func main() {
 	port := flag.Int("port", 0, "server port")
@@ -182,23 +230,8 @@ func main() {
 			if !acc.Enabled || acc.NeedsReauth || acc.ConfigManaged {
 				continue
 			}
-			accID := acc.ID
-			cachedCred := acc.Credential
-			cachedAuthType := acc.AuthType
-			credCacheTime := time.Now()
-			credFunc := func() (string, string) {
-				// Refresh every 5 minutes
-				if time.Since(credCacheTime) > 5*time.Minute {
-					fresh, err := accountRepo.GetByID(accID)
-					if err != nil {
-						return cachedCred, cachedAuthType
-					}
-					cachedCred = fresh.Credential
-					cachedAuthType = fresh.AuthType
-					credCacheTime = time.Now()
-				}
-				return cachedCred, cachedAuthType
-			}
+			cache := newCredentialCache(acc.ID, acc.Credential, acc.AuthType, accountRepo)
+			credFunc := cache.Get
 			provCfg := provider.ProviderConfig{Name: acc.Provider, Type: acc.Provider}
 			var p provider.Provider
 			switch acc.Provider {
@@ -239,23 +272,8 @@ func main() {
 
 	// registerAccount dynamically adds newly bound accounts to the live router
 	registerAccount := func(acc *repo.Account) {
-		accID := acc.ID
-		cachedCred := acc.Credential
-		cachedAuthType := acc.AuthType
-		credCacheTime := time.Now()
-		credFunc := func() (string, string) {
-			// Refresh every 5 minutes
-			if time.Since(credCacheTime) > 5*time.Minute {
-				fresh, err := accountRepo.GetByID(accID)
-				if err != nil {
-					return cachedCred, cachedAuthType
-				}
-				cachedCred = fresh.Credential
-				cachedAuthType = fresh.AuthType
-				credCacheTime = time.Now()
-			}
-			return cachedCred, cachedAuthType
-		}
+		cache := newCredentialCache(acc.ID, acc.Credential, acc.AuthType, accountRepo)
+		credFunc := cache.Get
 		provCfg := provider.ProviderConfig{Name: acc.Provider, Type: acc.Provider}
 		var p provider.Provider
 		switch acc.Provider {
@@ -306,8 +324,21 @@ func main() {
 	apiAuth.Use(handler.JWTAuthMiddleware(jwtMgr))
 	apiAuth.GET("/me", authHandler.Me)
 
-	// Settings handler
+	// Settings handler (providers, users, API keys)
 	settingsHandler := handler.NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database, auditLogger, registerAccount, rtr)
+
+	// Conversation handler
+	convoHandler := handler.NewConversationHandler(convoRepo, rtr, auditLogger)
+
+	// System prompt handler
+	systemPromptRepo := repo.NewSystemPromptRepo(database)
+	promptHandler := handler.NewSystemPromptHandler(systemPromptRepo)
+
+	// Usage handler
+	usageHandler := handler.NewUsageHandler(database, recorder, auditLogger)
+
+	// Admin handler
+	adminHandler := handler.NewAdminHandler(database, convoRepo, systemPromptRepo, auditLogger)
 
 	// Provider management (admin only)
 	apiAuth.GET("/providers", settingsHandler.ListProviders)
@@ -327,31 +358,31 @@ func main() {
 	apiAuth.DELETE("/api-keys/:id", settingsHandler.DeleteAPIKey)
 
 	// Conversation management
-	apiAuth.GET("/conversations", settingsHandler.ListConversations)
-	apiAuth.POST("/conversations", settingsHandler.CreateConversation)
-	apiAuth.GET("/conversations/:id", settingsHandler.GetConversation)
-	apiAuth.PUT("/conversations/:id", settingsHandler.UpdateConversation)
-	apiAuth.DELETE("/conversations/:id", settingsHandler.DeleteConversation)
-	apiAuth.POST("/conversations/:id/messages", settingsHandler.AddMessage)
-	apiAuth.DELETE("/conversations/:id/messages/:msgId", settingsHandler.DeleteMessageAndAfter)
-	apiAuth.GET("/conversations/:id/export", settingsHandler.ExportConversation)
-	apiAuth.POST("/conversations/:id/auto-title", settingsHandler.AutoTitle)
-	apiAuth.PUT("/conversations/:id/folder", settingsHandler.UpdateConversationFolder)
-	apiAuth.PUT("/conversations/:id/pin", settingsHandler.ToggleConversationPin)
-	apiAuth.POST("/conversations/:id/share", settingsHandler.ShareConversation)
-	apiAuth.DELETE("/conversations/:id/share", settingsHandler.UnshareConversation)
-	engine.GET("/api/shared/:token", settingsHandler.GetSharedConversation)
+	apiAuth.GET("/conversations", convoHandler.ListConversations)
+	apiAuth.POST("/conversations", convoHandler.CreateConversation)
+	apiAuth.GET("/conversations/:id", convoHandler.GetConversation)
+	apiAuth.PUT("/conversations/:id", convoHandler.UpdateConversation)
+	apiAuth.DELETE("/conversations/:id", convoHandler.DeleteConversation)
+	apiAuth.POST("/conversations/:id/messages", convoHandler.AddMessage)
+	apiAuth.DELETE("/conversations/:id/messages/:msgId", convoHandler.DeleteMessageAndAfter)
+	apiAuth.GET("/conversations/:id/export", convoHandler.ExportConversation)
+	apiAuth.POST("/conversations/:id/auto-title", convoHandler.AutoTitle)
+	apiAuth.PUT("/conversations/:id/folder", convoHandler.UpdateConversationFolder)
+	apiAuth.PUT("/conversations/:id/pin", convoHandler.ToggleConversationPin)
+	apiAuth.POST("/conversations/:id/share", convoHandler.ShareConversation)
+	apiAuth.DELETE("/conversations/:id/share", convoHandler.UnshareConversation)
+	engine.GET("/api/shared/:token", convoHandler.GetSharedConversation)
 
 	// System prompts
-	apiAuth.GET("/system-prompts", settingsHandler.ListSystemPrompts)
-	apiAuth.POST("/system-prompts", settingsHandler.CreateSystemPrompt)
-	apiAuth.PUT("/system-prompts/:id", settingsHandler.UpdateSystemPrompt)
-	apiAuth.DELETE("/system-prompts/:id", settingsHandler.DeleteSystemPrompt)
+	apiAuth.GET("/system-prompts", promptHandler.ListSystemPrompts)
+	apiAuth.POST("/system-prompts", promptHandler.CreateSystemPrompt)
+	apiAuth.PUT("/system-prompts/:id", promptHandler.UpdateSystemPrompt)
+	apiAuth.DELETE("/system-prompts/:id", promptHandler.DeleteSystemPrompt)
 
 	// Usage
-	apiAuth.GET("/usage", settingsHandler.GetUsage)
-	apiAuth.GET("/usage/all", settingsHandler.GetAllUsage)
-	apiAuth.GET("/usage/analytics", settingsHandler.UsageAnalytics)
+	apiAuth.GET("/usage", usageHandler.GetUsage)
+	apiAuth.GET("/usage/all", usageHandler.GetAllUsage)
+	apiAuth.GET("/usage/analytics", usageHandler.UsageAnalytics)
 
 	// OAuth routes
 	oauthHandler := handler.NewOAuthHandler(oauthMgr, rtr, registerAccount, auditLogger)
@@ -399,8 +430,8 @@ func main() {
 	apiAuth.POST("/templates/:id/use", templatesHandler.Use)
 
 	// Data export / import
-	apiAuth.GET("/export", settingsHandler.ExportUserData)
-	apiAuth.POST("/import", settingsHandler.ImportUserData)
+	apiAuth.GET("/export", adminHandler.ExportUserData)
+	apiAuth.POST("/import", adminHandler.ImportUserData)
 
 	// Chat rooms routes
 	roomsHandler := handler.NewRoomsHandler(database.DB, rtr)
@@ -472,13 +503,13 @@ func main() {
 	})
 
 	// Audit log (admin only)
-	apiAuth.GET("/audit-log", settingsHandler.GetAuditLog)
+	apiAuth.GET("/audit-log", adminHandler.GetAuditLog)
 
 	// Admin dashboard
-	apiAuth.GET("/dashboard", settingsHandler.Dashboard)
+	apiAuth.GET("/dashboard", usageHandler.Dashboard)
 
 	// Database backup (admin only)
-	apiAuth.GET("/backup", settingsHandler.BackupDB)
+	apiAuth.GET("/backup", adminHandler.BackupDB)
 
 	web.RegisterFrontend(engine)
 
