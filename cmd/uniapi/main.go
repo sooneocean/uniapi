@@ -351,6 +351,7 @@ func main() {
 	// Usage
 	apiAuth.GET("/usage", settingsHandler.GetUsage)
 	apiAuth.GET("/usage/all", settingsHandler.GetAllUsage)
+	apiAuth.GET("/usage/analytics", settingsHandler.UsageAnalytics)
 
 	// OAuth routes
 	oauthHandler := handler.NewOAuthHandler(oauthMgr, rtr, registerAccount, auditLogger)
@@ -410,6 +411,22 @@ func main() {
 	apiAuth.POST("/rooms/:id/messages", roomsHandler.SendMessage)
 	apiAuth.DELETE("/rooms/:id", roomsHandler.Delete)
 	apiAuth.GET("/rooms/:id/members", roomsHandler.GetMembers)
+	apiAuth.GET("/rooms/:id/stream", roomsHandler.StreamRoom)
+
+	// Workflows routes
+	workflowsHandler := handler.NewWorkflowsHandler(database.DB, rtr)
+	apiAuth.GET("/workflows", workflowsHandler.List)
+	apiAuth.POST("/workflows", workflowsHandler.Create)
+	apiAuth.PUT("/workflows/:id", workflowsHandler.Update)
+	apiAuth.DELETE("/workflows/:id", workflowsHandler.Delete)
+	apiAuth.POST("/workflows/:id/run", workflowsHandler.Run)
+
+	// Themes routes
+	themesHandler := handler.NewThemesHandler(database.DB)
+	apiAuth.GET("/themes", themesHandler.List)
+	apiAuth.POST("/themes", themesHandler.Create)
+	apiAuth.DELETE("/themes/:id", themesHandler.Delete)
+	apiAuth.PUT("/themes/:id/apply", themesHandler.Apply)
 
 	// API routes
 	apiHandler := handler.NewAPIHandlerWithCache(rtr, recorder, webhookMgr, respCache, database.DB, memCache)

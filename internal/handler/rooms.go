@@ -2,6 +2,7 @@ package handler
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -15,10 +16,11 @@ import (
 type RoomsHandler struct {
 	db     *sql.DB
 	router *router.Router
+	hub    *RoomHub
 }
 
 func NewRoomsHandler(db *sql.DB, rtr *router.Router) *RoomsHandler {
-	return &RoomsHandler{db: db, router: rtr}
+	return &RoomsHandler{db: db, router: rtr, hub: NewRoomHub()}
 }
 
 type ChatRoom struct {
@@ -151,12 +153,18 @@ func (h *RoomsHandler) SendMessage(c *gin.Context) {
 
 	// Store user message
 	msgID := uuid.New().String()
+	now := time.Now().UTC()
 	h.db.Exec("INSERT INTO chat_room_messages (id, room_id, user_id, username, role, content) VALUES (?,?,?,?,?,?)",
 		msgID, roomID, userID, username, "user", req.Content)
 
 	userMsg := RoomMessage{
 		ID: msgID, RoomID: roomID, UserID: userID, Username: username,
-		Role: "user", Content: req.Content, CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Role: "user", Content: req.Content, CreatedAt: now.Format(time.RFC3339),
+	}
+
+	// Broadcast user message via SSE
+	if msgJSON, err := json.Marshal(userMsg); err == nil {
+		h.hub.Broadcast(roomID, string(msgJSON))
 	}
 
 	// Check if AI response is needed
@@ -230,13 +238,19 @@ func (h *RoomsHandler) SendMessage(c *gin.Context) {
 	}
 
 	aiMsgID := uuid.New().String()
+	aiNow := time.Now().UTC()
 	h.db.Exec("INSERT INTO chat_room_messages (id, room_id, username, role, content, model) VALUES (?,?,?,?,?,?)",
 		aiMsgID, roomID, resp.Model, "assistant", aiText, resp.Model)
 
 	aiMsg := RoomMessage{
 		ID: aiMsgID, RoomID: roomID, Username: resp.Model,
 		Role: "assistant", Content: aiText, Model: resp.Model,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		CreatedAt: aiNow.Format(time.RFC3339),
+	}
+
+	// Broadcast AI message via SSE
+	if aiJSON, err := json.Marshal(aiMsg); err == nil {
+		h.hub.Broadcast(roomID, string(aiJSON))
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"message": userMsg, "ai_response": aiMsg})

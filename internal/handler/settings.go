@@ -854,6 +854,99 @@ func (h *SettingsHandler) GetAllUsage(c *gin.Context) {
 	c.JSON(http.StatusOK, results)
 }
 
+// GET /api/usage/analytics?days=30
+func (h *SettingsHandler) UsageAnalytics(c *gin.Context) {
+	days := 30
+	if d := c.Query("days"); d != "" {
+		fmt.Sscanf(d, "%d", &days)
+	}
+	if days <= 0 || days > 365 {
+		days = 30
+	}
+
+	uid, _ := c.Get("user_id")
+	userID := uid.(string)
+	role, _ := c.Get("role")
+
+	from := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+
+	// Daily cost/token series
+	type DailyEntry struct {
+		Date         string  `json:"date"`
+		Cost         float64 `json:"cost"`
+		TokensIn     int64   `json:"tokens_in"`
+		TokensOut    int64   `json:"tokens_out"`
+		RequestCount int64   `json:"request_count"`
+	}
+	var dailySeries []DailyEntry
+	rows, err := h.database.DB.Query(
+		`SELECT date, SUM(cost), SUM(tokens_in), SUM(tokens_out), SUM(request_count)
+		 FROM usage_daily WHERE user_id = ? AND date >= ? GROUP BY date ORDER BY date`,
+		userID, from)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var e DailyEntry
+			rows.Scan(&e.Date, &e.Cost, &e.TokensIn, &e.TokensOut, &e.RequestCount)
+			dailySeries = append(dailySeries, e)
+		}
+	}
+	if dailySeries == nil {
+		dailySeries = []DailyEntry{}
+	}
+
+	// Cost by model
+	type ModelEntry struct {
+		Model string  `json:"model"`
+		Cost  float64 `json:"cost"`
+	}
+	var modelSeries []ModelEntry
+	modelRows, err := h.database.DB.Query(
+		`SELECT model, SUM(cost) FROM usage_daily WHERE user_id = ? AND date >= ? GROUP BY model ORDER BY SUM(cost) DESC`,
+		userID, from)
+	if err == nil {
+		defer modelRows.Close()
+		for modelRows.Next() {
+			var e ModelEntry
+			modelRows.Scan(&e.Model, &e.Cost)
+			modelSeries = append(modelSeries, e)
+		}
+	}
+	if modelSeries == nil {
+		modelSeries = []ModelEntry{}
+	}
+
+	// Top users (admin only)
+	var topUsers interface{} = nil
+	if r, ok := role.(string); ok && r == "admin" {
+		type UserEntry struct {
+			Username     string  `json:"username"`
+			Cost         float64 `json:"cost"`
+			RequestCount int64   `json:"request_count"`
+		}
+		var topUsersList []UserEntry
+		userRows, err := h.database.DB.Query(
+			`SELECT u.username, SUM(ud.cost), SUM(ud.request_count)
+			 FROM usage_daily ud JOIN users u ON u.id = ud.user_id
+			 WHERE ud.date >= ? GROUP BY ud.user_id ORDER BY SUM(ud.cost) DESC LIMIT 10`,
+			from)
+		if err == nil {
+			defer userRows.Close()
+			for userRows.Next() {
+				var e UserEntry
+				userRows.Scan(&e.Username, &e.Cost, &e.RequestCount)
+				topUsersList = append(topUsersList, e)
+			}
+		}
+		if topUsersList == nil {
+			topUsersList = []UserEntry{}
+		}
+		topUsers = topUsersList
+	}
+
+	c.JSON(http.StatusOK, gin.H{"daily": dailySeries, "by_model": modelSeries, "top_users": topUsers})
+}
+
 // ─── Message edit / regenerate ────────────────────────────────────────────────
 
 // DELETE /api/conversations/:id/messages/:msgId

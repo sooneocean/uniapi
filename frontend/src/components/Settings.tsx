@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import ProviderSettings from './ProviderSettings';
 import UserSettings from './UserSettings';
 import UsageDashboard from './UsageDashboard';
+import AnalyticsDashboard from './AnalyticsDashboard';
 import APIKeySettings from './APIKeySettings';
 import AdminDashboard from './AdminDashboard';
 import ModelAliases from './ModelAliases';
@@ -10,8 +11,10 @@ import KnowledgeBase from './KnowledgeBase';
 import PluginManager from './PluginManager';
 import PromptTemplates from './PromptTemplates';
 import DataSettings from './DataSettings';
+import WorkflowBuilder from './WorkflowBuilder';
+import ThemeEditor from './ThemeEditor';
 
-type Tab = 'dashboard' | 'providers' | 'users' | 'usage' | 'apikeys' | 'aliases' | 'knowledge' | 'plugins' | 'templates' | 'data';
+type Tab = 'dashboard' | 'providers' | 'users' | 'usage' | 'analytics' | 'apikeys' | 'aliases' | 'knowledge' | 'plugins' | 'templates' | 'workflows' | 'themes' | 'data';
 
 interface SettingsProps {
   onClose: () => void;
@@ -27,11 +30,14 @@ export default function Settings({ onClose, userRole }: SettingsProps) {
     { id: 'providers', label: t('settings.providers') },
     { id: 'users', label: t('settings.users'), adminOnly: true },
     { id: 'usage', label: t('settings.usage') },
+    { id: 'analytics', label: 'Analytics' },
     { id: 'apikeys', label: t('settings.apiKeys') },
     { id: 'aliases', label: 'Model Aliases' },
     { id: 'knowledge', label: 'Knowledge' },
     { id: 'plugins', label: 'Plugins' },
     { id: 'templates', label: 'Templates' },
+    { id: 'workflows', label: 'Workflows' },
+    { id: 'themes', label: 'Themes' },
     { id: 'data', label: 'Data' },
   ];
 
@@ -75,11 +81,14 @@ export default function Settings({ onClose, userRole }: SettingsProps) {
           {activeTab === 'providers' && <ProviderSettings />}
           {activeTab === 'users' && userRole === 'admin' && <UserSettings />}
           {activeTab === 'usage' && <UsageDashboard />}
+          {activeTab === 'analytics' && <AnalyticsDashboard />}
           {activeTab === 'apikeys' && <APIKeySettings />}
           {activeTab === 'aliases' && <ModelAliases />}
           {activeTab === 'knowledge' && <KnowledgeBase />}
           {activeTab === 'plugins' && <PluginManager />}
           {activeTab === 'templates' && <PromptTemplates />}
+          {activeTab === 'workflows' && <WorkflowBuilder />}
+          {activeTab === 'themes' && <ThemeEditor />}
           {activeTab === 'data' && <DataSettings />}
         </div>
       </div>

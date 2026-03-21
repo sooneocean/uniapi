@@ -37,7 +37,10 @@ export default function ChatRooms(_props: ChatRoomsProps = {}) {
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [members, setMembers] = useState<{ id: string; username: string }[]>([]);
+  const [sseConnected, setSseConnected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const sseRef = useRef<EventSource | null>(null);
+  const activeRoomIdRef = useRef<string | null>(null);
 
   const loadRooms = async () => {
     try {
@@ -51,6 +54,50 @@ export default function ChatRooms(_props: ChatRoomsProps = {}) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // SSE: connect/disconnect when active room changes
+  useEffect(() => {
+    // Disconnect previous
+    if (sseRef.current) {
+      sseRef.current.close();
+      sseRef.current = null;
+      setSseConnected(false);
+    }
+    if (!activeRoom) return;
+
+    activeRoomIdRef.current = activeRoom.id;
+    const es = new EventSource(`/api/rooms/${activeRoom.id}/stream`, { withCredentials: true });
+    sseRef.current = es;
+
+    es.onopen = () => setSseConnected(true);
+    es.onerror = () => {
+      setSseConnected(false);
+      // Reconnect after 3s
+      setTimeout(() => {
+        if (activeRoomIdRef.current === activeRoom.id) {
+          es.close();
+          // re-trigger by toggling state — use a fresh EventSource
+          sseRef.current = null;
+        }
+      }, 3000);
+    };
+    es.onmessage = (event) => {
+      try {
+        const msg: RoomMessage = JSON.parse(event.data);
+        setMessages(prev => {
+          // Avoid duplicates
+          if (prev.some(m => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
+      } catch {}
+    };
+
+    return () => {
+      es.close();
+      sseRef.current = null;
+      setSseConnected(false);
+    };
+  }, [activeRoom?.id]);
 
   const selectRoom = async (room: Room) => {
     setActiveRoom(room);
@@ -190,7 +237,17 @@ export default function ChatRooms(_props: ChatRoomsProps = {}) {
           {/* Room header */}
           <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--border-color)' }}>
             <div>
-              <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{activeRoom.name}</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{activeRoom.name}</p>
+                {sseConnected ? (
+                  <span className="text-xs flex items-center gap-1" style={{ color: '#22c55e' }}>
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                    Live
+                  </span>
+                ) : (
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Connecting...</span>
+                )}
+              </div>
               <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                 {members.length} member{members.length !== 1 ? 's' : ''}: {members.map(m => m.username).join(', ')}
               </p>
