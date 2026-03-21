@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import ProviderSettings from './ProviderSettings';
 import UserSettings from './UserSettings';
 import UsageDashboard from './UsageDashboard';
@@ -12,13 +13,14 @@ interface SettingsProps {
 }
 
 export default function Settings({ onClose, userRole }: SettingsProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<Tab>('providers');
 
   const tabs: { id: Tab; label: string; adminOnly?: boolean }[] = [
-    { id: 'providers', label: 'Providers' },
-    { id: 'users', label: 'Users', adminOnly: true },
-    { id: 'usage', label: 'Usage' },
-    { id: 'apikeys', label: 'API Keys' },
+    { id: 'providers', label: t('settings.providers') },
+    { id: 'users', label: t('settings.users'), adminOnly: true },
+    { id: 'usage', label: t('settings.usage') },
+    { id: 'apikeys', label: t('settings.apiKeys') },
   ];
 
   const visibleTabs = tabs.filter((t) => !t.adminOnly || userRole === 'admin');
@@ -28,7 +30,7 @@ export default function Settings({ onClose, userRole }: SettingsProps) {
       <div className="bg-gray-800 rounded-none md:rounded-xl shadow-2xl w-full md:max-w-2xl md:mx-4 h-full md:max-h-[85vh] flex flex-col" style={{ background: 'var(--bg-secondary)' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
-          <h1 className="text-white text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Settings</h1>
+          <h1 className="text-white text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>{t('settings.title')}</h1>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-white transition-colors text-xl leading-none"

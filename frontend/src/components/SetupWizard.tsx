@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { setup, login } from '../api/client';
 
 interface Props {
@@ -6,6 +7,7 @@ interface Props {
 }
 
 export default function SetupWizard({ onComplete }: Props) {
+  const { t } = useTranslation();
   const [step, setStep] = useState(1);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -26,7 +28,7 @@ export default function SetupWizard({ onComplete }: Props) {
       return;
     }
     if (password !== confirmPassword) {
-      setError('Passwords do not match');
+      setError(t('auth.passwordMismatch'));
       return;
     }
 
@@ -47,13 +49,13 @@ export default function SetupWizard({ onComplete }: Props) {
       <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
         <div className="bg-gray-800 rounded-xl p-8 w-full max-w-md shadow-2xl text-center">
           <div className="text-5xl mb-4">✓</div>
-          <h1 className="text-2xl font-bold mb-2">You're all set!</h1>
-          <p className="text-gray-400 mb-6">Your admin account has been created.</p>
+          <h1 className="text-2xl font-bold mb-2">{t('auth.setupComplete')}</h1>
+          <p className="text-gray-400 mb-6">{t('auth.setupDesc')}</p>
           <button
             onClick={onComplete}
             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
           >
-            Start Chatting
+            {t('auth.startChatting')}
           </button>
         </div>
       </div>
@@ -63,12 +65,12 @@ export default function SetupWizard({ onComplete }: Props) {
   return (
     <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
       <div className="bg-gray-800 rounded-xl p-8 w-full max-w-md shadow-2xl">
-        <h1 className="text-2xl font-bold mb-1">Welcome to UniAPI</h1>
-        <p className="text-gray-400 mb-6">Create your admin account to get started.</p>
+        <h1 className="text-2xl font-bold mb-1">{t('auth.setupTitle')}</h1>
+        <p className="text-gray-400 mb-6">{t('auth.setupDesc')}</p>
 
         <form onSubmit={handleSetup} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Username</label>
+            <label className="block text-sm font-medium text-gray-300 mb-1">{t('auth.username')}</label>
             <input
               type="text"
               value={username}
@@ -80,7 +82,7 @@ export default function SetupWizard({ onComplete }: Props) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Password</label>
+            <label className="block text-sm font-medium text-gray-300 mb-1">{t('auth.password')}</label>
             <input
               type="password"
               value={password}
@@ -91,7 +93,7 @@ export default function SetupWizard({ onComplete }: Props) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Confirm Password</label>
+            <label className="block text-sm font-medium text-gray-300 mb-1">{t('auth.confirmPassword')}</label>
             <input
               type="password"
               value={confirmPassword}
@@ -110,7 +112,7 @@ export default function SetupWizard({ onComplete }: Props) {
             disabled={loading}
             className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
           >
-            {loading ? 'Creating account…' : 'Create Admin Account'}
+            {loading ? '...' : t('auth.createAdmin')}
           </button>
         </form>
       </div>

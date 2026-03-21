@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { login } from '../api/client';
 
 interface Props {
@@ -6,6 +7,7 @@ interface Props {
 }
 
 export default function LoginPage({ onLogin }: Props) {
+  const { t } = useTranslation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -19,7 +21,7 @@ export default function LoginPage({ onLogin }: Props) {
       await login(username, password);
       onLogin();
     } catch {
-      setError('Invalid credentials');
+      setError(t('auth.invalidCredentials'));
     } finally {
       setLoading(false);
     }
@@ -33,7 +35,7 @@ export default function LoginPage({ onLogin }: Props) {
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Username</label>
+            <label className="block text-sm font-medium text-gray-300 mb-1">{t('auth.username')}</label>
             <input
               type="text"
               value={username}
@@ -45,7 +47,7 @@ export default function LoginPage({ onLogin }: Props) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">Password</label>
+            <label className="block text-sm font-medium text-gray-300 mb-1">{t('auth.password')}</label>
             <input
               type="password"
               value={password}
@@ -64,7 +66,7 @@ export default function LoginPage({ onLogin }: Props) {
             disabled={loading}
             className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
           >
-            {loading ? 'Signing in…' : 'Log In'}
+            {loading ? '...' : t('auth.login')}
           </button>
         </form>
       </div>

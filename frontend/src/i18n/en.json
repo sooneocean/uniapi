@@ -1,0 +1,88 @@
+{
+  "app": { "name": "UniAPI", "loading": "Loading..." },
+  "sidebar": {
+    "newChat": "New Chat",
+    "search": "Search conversations...",
+    "noResults": "No results",
+    "noConversations": "No conversations yet",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "older": "Older"
+  },
+  "chat": {
+    "placeholder": "Type a message...",
+    "send": "Send",
+    "thinking": "Thinking...",
+    "tokenEstimate": "~{{tokens}} tokens · ~${{cost}}",
+    "export": "Export",
+    "exportMd": "Markdown (.md)",
+    "exportJson": "JSON",
+    "systemPrompt": "System Prompt",
+    "customPrompt": "Custom prompt...",
+    "savePreset": "Save as preset",
+    "clearPrompt": "Clear",
+    "edit": "Edit",
+    "regenerate": "Regenerate",
+    "copy": "Copy",
+    "copied": "Copied!"
+  },
+  "auth": {
+    "login": "Log In",
+    "username": "Username",
+    "password": "Password",
+    "invalidCredentials": "Invalid credentials",
+    "setupTitle": "Welcome to UniAPI",
+    "setupDesc": "Create your admin account to get started.",
+    "confirmPassword": "Confirm Password",
+    "passwordMismatch": "Passwords do not match",
+    "createAdmin": "Create Admin Account",
+    "setupComplete": "Setup Complete!",
+    "startChatting": "Start Chatting"
+  },
+  "settings": {
+    "title": "Settings",
+    "providers": "Providers",
+    "users": "Users",
+    "usage": "Usage",
+    "apiKeys": "API Keys",
+    "audit": "Audit Log",
+    "addProvider": "Add Provider",
+    "addUser": "Add User",
+    "generateKey": "Generate Key",
+    "delete": "Delete",
+    "enable": "Enable",
+    "disable": "Disable",
+    "close": "Close"
+  },
+  "accounts": {
+    "title": "My Accounts",
+    "bindAI": "Bind AI Account (use your own quota)",
+    "pasteToken": "Paste Session Token",
+    "oauthConnect": "OAuth Connect",
+    "myAccounts": "My Accounts",
+    "sharedAccounts": "Shared Accounts (provided by admin)",
+    "unbind": "Unbind",
+    "needsReauth": "Needs Re-authorization",
+    "available": "Available",
+    "back": "Back"
+  },
+  "shortcuts": {
+    "title": "Keyboard Shortcuts",
+    "search": "Search conversations",
+    "newChat": "New conversation",
+    "focusInput": "Focus message input",
+    "openSettings": "Open settings",
+    "showHelp": "Show this help",
+    "sendMessage": "Send message",
+    "newLine": "New line",
+    "closeModal": "Close modal"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "confirm": "Confirm",
+    "logout": "Logout",
+    "admin": "Admin",
+    "member": "Member"
+  }
+}

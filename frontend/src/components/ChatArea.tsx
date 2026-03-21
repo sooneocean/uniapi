@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
+import { useTranslation } from 'react-i18next';
 import { v4 as uuidv4 } from 'uuid';
 import type { Message } from '../types';
 import {
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export default function ChatArea({ conversationId, onConversationTitleUpdate, onRegisterFocusInput }: Props) {
+  const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [pendingImages, setPendingImages] = useState<string[]>([]);
@@ -285,20 +287,20 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
                 className="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-gray-700 border border-gray-600 text-gray-300 hover:bg-gray-600 transition-colors"
                 title="Export conversation"
               >
-                ⬇ Export
+                ⬇ {t('chat.export')}
               </button>
               <div className="absolute right-0 top-full mt-1 z-50 hidden group-hover/export:block bg-gray-800 border border-gray-600 rounded-lg shadow-xl overflow-hidden">
                 <button
                   className="block w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-gray-700 whitespace-nowrap"
                   onClick={() => handleExport('markdown')}
                 >
-                  Markdown (.md)
+                  {t('chat.exportMd')}
                 </button>
                 <button
                   className="block w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-gray-700 whitespace-nowrap"
                   onClick={() => handleExport('json')}
                 >
-                  JSON
+                  {t('chat.exportJson')}
                 </button>
               </div>
             </div>
@@ -375,7 +377,10 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
         {/* Token estimate */}
         {(input || messages.length > 0) && (
           <div className="text-xs text-gray-500 mb-1">
-            ~{estimatedTokens.toLocaleString()} tokens · ~${estimatedCost < 0.001 ? estimatedCost.toFixed(6) : estimatedCost.toFixed(4)}
+            {t('chat.tokenEstimate', {
+              tokens: estimatedTokens.toLocaleString(),
+              cost: estimatedCost < 0.001 ? estimatedCost.toFixed(6) : estimatedCost.toFixed(4),
+            })}
           </div>
         )}
         <div className="flex items-end gap-2">
@@ -404,7 +409,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
+            placeholder={t('chat.placeholder')}
             rows={1}
             disabled={loading}
             className="flex-1 bg-gray-700 text-gray-100 placeholder-gray-500 border border-gray-600 rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:border-blue-500 disabled:opacity-50 max-h-40 overflow-y-auto"
@@ -420,7 +425,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
             disabled={loading || (!input.trim() && pendingImages.length === 0) || !selectedModel}
             className="px-4 py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            Send
+            {t('chat.send')}
           </button>
         </div>
       </div>

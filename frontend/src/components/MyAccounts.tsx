@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { getOAuthProviders, getOAuthAccounts, unbindAccount, reauthAccount } from '../api/client';
 import SessionTokenDialog from './SessionTokenDialog';
 
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export default function MyAccounts({ onBack }: Props) {
+  const { t } = useTranslation();
   const [providers, setProviders] = useState<OAuthProvider[]>([]);
   const [accounts, setAccounts] = useState<OAuthAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,9 +76,9 @@ export default function MyAccounts({ onBack }: Props) {
           onClick={onBack}
           className="text-gray-400 hover:text-white transition-colors text-sm px-3 py-1.5 rounded hover:bg-gray-700 border border-gray-600"
         >
-          ← Back
+          ← {t('accounts.back')}
         </button>
-        <h1 className="text-lg font-semibold">My Accounts</h1>
+        <h1 className="text-lg font-semibold">{t('accounts.title')}</h1>
       </div>
 
       <div className="max-w-2xl mx-auto px-6 py-6 space-y-8">
@@ -84,7 +86,7 @@ export default function MyAccounts({ onBack }: Props) {
 
         {/* Bind AI Account section */}
         <section>
-          <h2 className="text-base font-semibold mb-3 text-gray-200">Bind AI Account</h2>
+          <h2 className="text-base font-semibold mb-3 text-gray-200">{t('accounts.bindAI')}</h2>
           {loading ? (
             <p className="text-gray-400 text-sm">Loading providers...</p>
           ) : providers.length === 0 ? (
@@ -100,7 +102,7 @@ export default function MyAccounts({ onBack }: Props) {
                         onClick={() => setSessionDialog({ provider: prov.name, displayName: prov.display_name })}
                         className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-500 transition-colors"
                       >
-                        Paste Session Token
+                        {t('accounts.pasteToken')}
                       </button>
                     )}
                     {prov.supports_oauth && (
@@ -108,7 +110,7 @@ export default function MyAccounts({ onBack }: Props) {
                         onClick={() => window.open(`/api/oauth/bind/${prov.name}/authorize?shared=false`, '_blank', 'width=600,height=700')}
                         className="px-3 py-1.5 text-sm bg-green-700 text-white rounded hover:bg-green-600 transition-colors"
                       >
-                        OAuth Connect
+                        {t('accounts.oauthConnect')}
                       </button>
                     )}
                   </div>
@@ -120,7 +122,7 @@ export default function MyAccounts({ onBack }: Props) {
 
         {/* My Accounts section */}
         <section>
-          <h2 className="text-base font-semibold mb-3 text-gray-200">My Accounts</h2>
+          <h2 className="text-base font-semibold mb-3 text-gray-200">{t('accounts.myAccounts')}</h2>
           {privateAccounts.length === 0 ? (
             <p className="text-gray-400 text-sm">No private accounts bound.</p>
           ) : (
@@ -132,9 +134,9 @@ export default function MyAccounts({ onBack }: Props) {
                     <span className="text-xs bg-gray-600 text-gray-300 px-2 py-0.5 rounded">{acc.provider}</span>
                     <span className="text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded">{acc.auth_type}</span>
                     {acc.needs_reauth ? (
-                      <span className="text-xs bg-yellow-900 text-yellow-300 px-2 py-0.5 rounded">needs reauth</span>
+                      <span className="text-xs bg-yellow-900 text-yellow-300 px-2 py-0.5 rounded">{t('accounts.needsReauth')}</span>
                     ) : (
-                      <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded">normal</span>
+                      <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded">{t('accounts.available')}</span>
                     )}
                   </div>
                   <div className="flex gap-2">
@@ -143,14 +145,14 @@ export default function MyAccounts({ onBack }: Props) {
                         onClick={() => handleReauth(acc.id)}
                         className="px-3 py-1.5 text-sm bg-yellow-700 text-white rounded hover:bg-yellow-600 transition-colors"
                       >
-                        Reauth
+                        {t('accounts.needsReauth')}
                       </button>
                     )}
                     <button
                       onClick={() => handleUnbind(acc.id)}
                       className="px-3 py-1.5 text-sm bg-red-800 text-red-200 rounded hover:bg-red-700 transition-colors"
                     >
-                      Unbind
+                      {t('accounts.unbind')}
                     </button>
                   </div>
                 </div>
@@ -161,7 +163,7 @@ export default function MyAccounts({ onBack }: Props) {
 
         {/* Shared Accounts section */}
         <section>
-          <h2 className="text-base font-semibold mb-3 text-gray-200">Shared Accounts</h2>
+          <h2 className="text-base font-semibold mb-3 text-gray-200">{t('accounts.sharedAccounts')}</h2>
           {sharedAccounts.length === 0 ? (
             <p className="text-gray-400 text-sm">No shared accounts available.</p>
           ) : (
@@ -172,9 +174,9 @@ export default function MyAccounts({ onBack }: Props) {
                     <span className="text-white font-medium">{acc.label || acc.provider}</span>
                     <span className="text-xs bg-gray-600 text-gray-300 px-2 py-0.5 rounded">{acc.provider}</span>
                     {acc.needs_reauth ? (
-                      <span className="text-xs bg-yellow-900 text-yellow-300 px-2 py-0.5 rounded">needs reauth</span>
+                      <span className="text-xs bg-yellow-900 text-yellow-300 px-2 py-0.5 rounded">{t('accounts.needsReauth')}</span>
                     ) : (
-                      <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded">normal</span>
+                      <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded">{t('accounts.available')}</span>
                     )}
                   </div>
                 </div>

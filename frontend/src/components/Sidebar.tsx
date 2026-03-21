@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Conversation } from '../types';
 
 interface Props {
@@ -39,6 +40,7 @@ function groupByDate(conversations: Conversation[]): Record<string, Conversation
 }
 
 export default function Sidebar({ conversations, activeConversationId, onNewChat, onSelectConversation, onRegisterFocusSearch }: Props) {
+  const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -71,7 +73,7 @@ export default function Sidebar({ conversations, activeConversationId, onNewChat
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search conversations..."
+          placeholder={t('sidebar.search')}
           className="w-full bg-gray-700 text-gray-100 placeholder-gray-500 border border-gray-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
         />
       </div>
@@ -83,16 +85,16 @@ export default function Sidebar({ conversations, activeConversationId, onNewChat
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-600 text-gray-300 hover:bg-gray-700 hover:text-white transition-colors text-sm"
         >
           <span className="text-lg leading-none">+</span>
-          <span>New Chat</span>
+          <span>{t('sidebar.newChat')}</span>
         </button>
       </div>
 
       {/* Conversation List */}
       <div className="flex-1 overflow-y-auto px-2">
         {conversations.length === 0 ? (
-          <p className="text-gray-500 text-sm text-center mt-4 px-2">No conversations yet</p>
+          <p className="text-gray-500 text-sm text-center mt-4 px-2">{t('sidebar.noConversations')}</p>
         ) : filtered.length === 0 ? (
-          <p className="text-gray-500 text-sm text-center mt-4 px-2">No results</p>
+          <p className="text-gray-500 text-sm text-center mt-4 px-2">{t('sidebar.noResults')}</p>
         ) : (
           orderedGroups.map((group) => (
             <div key={group} className="mb-3">

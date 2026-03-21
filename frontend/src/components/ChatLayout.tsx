@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Conversation } from '../types';
 import Sidebar from './Sidebar';
 import ChatArea from './ChatArea';
 import Settings from './Settings';
 import ThemeToggle from './ThemeToggle';
+import LanguageToggle from './LanguageToggle';
 import ShortcutHelp from './ShortcutHelp';
 import { getMe, logout, getConversations, createConversation } from '../api/client';
 import { useTheme } from '../hooks/useTheme';
@@ -14,6 +16,7 @@ interface Props {
 }
 
 export default function ChatLayout({ onShowAccounts }: Props) {
+  const { t } = useTranslation();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -118,6 +121,7 @@ export default function ChatLayout({ onShowAccounts }: Props) {
 
           {/* Right side icons */}
           <div className="flex items-center gap-2">
+            <LanguageToggle />
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
             <button
               onClick={() => onShowAccounts?.()}
@@ -129,7 +133,7 @@ export default function ChatLayout({ onShowAccounts }: Props) {
             </button>
             <button
               onClick={() => setShowSettings(true)}
-              title="Settings"
+              title={t('settings.title')}
               className="text-gray-400 hover:text-white transition-colors text-lg px-2 py-1 rounded hover:bg-gray-700"
               aria-label="Open settings"
             >
@@ -137,10 +141,10 @@ export default function ChatLayout({ onShowAccounts }: Props) {
             </button>
             <button
               onClick={handleLogout}
-              title="Logout"
+              title={t('common.logout')}
               className="text-gray-400 hover:text-white transition-colors text-sm px-3 py-1 rounded hover:bg-gray-700 border border-gray-600"
             >
-              Logout
+              {t('common.logout')}
             </button>
           </div>
         </div>
