@@ -64,6 +64,24 @@ func NewManager(database *db.Database, accountRepo *repo.AccountRepo, encKey []b
 // BaseURL returns the configured external base URL.
 func (m *Manager) BaseURL() string { return m.baseURL }
 
+func (m *Manager) getClientCredentials(providerName string) (clientID, clientSecret string) {
+	switch providerName {
+	case "openai":
+		if m.oauthCfg.OpenAI != nil {
+			return m.oauthCfg.OpenAI.ClientID, m.oauthCfg.OpenAI.ClientSecret
+		}
+	case "aliyun":
+		if m.oauthCfg.Qwen != nil {
+			return m.oauthCfg.Qwen.ClientID, m.oauthCfg.Qwen.ClientSecret
+		}
+	case "anthropic":
+		if m.oauthCfg.Claude != nil {
+			return m.oauthCfg.Claude.ClientID, m.oauthCfg.Claude.ClientSecret
+		}
+	}
+	return "", ""
+}
+
 // ListProviders returns all available binding providers.
 func (m *Manager) ListProviders() []*BindingProvider {
 	result := make([]*BindingProvider, 0, len(m.providers))
@@ -109,21 +127,7 @@ func (m *Manager) AuthorizeURL(providerName, userID, sessionHash string, shared 
 	}
 
 	// Get client_id for provider
-	clientID := ""
-	switch providerName {
-	case "openai":
-		if m.oauthCfg.OpenAI != nil {
-			clientID = m.oauthCfg.OpenAI.ClientID
-		}
-	case "aliyun":
-		if m.oauthCfg.Qwen != nil {
-			clientID = m.oauthCfg.Qwen.ClientID
-		}
-	case "anthropic":
-		if m.oauthCfg.Claude != nil {
-			clientID = m.oauthCfg.Claude.ClientID
-		}
-	}
+	clientID, _ := m.getClientCredentials(providerName)
 
 	redirectURI := fmt.Sprintf("%s/api/oauth/callback/%s", m.baseURL, providerName)
 
@@ -207,24 +211,7 @@ func (m *Manager) exchangeCode(providerName, code string) (accessToken, refreshT
 	}
 
 	// Get client credentials
-	var clientID, clientSecret string
-	switch providerName {
-	case "openai":
-		if m.oauthCfg.OpenAI != nil {
-			clientID = m.oauthCfg.OpenAI.ClientID
-			clientSecret = m.oauthCfg.OpenAI.ClientSecret
-		}
-	case "aliyun":
-		if m.oauthCfg.Qwen != nil {
-			clientID = m.oauthCfg.Qwen.ClientID
-			clientSecret = m.oauthCfg.Qwen.ClientSecret
-		}
-	case "anthropic":
-		if m.oauthCfg.Claude != nil {
-			clientID = m.oauthCfg.Claude.ClientID
-			clientSecret = m.oauthCfg.Claude.ClientSecret
-		}
-	}
+	clientID, clientSecret := m.getClientCredentials(providerName)
 
 	redirectURI := fmt.Sprintf("%s/api/oauth/callback/%s", m.baseURL, providerName)
 

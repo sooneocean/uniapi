@@ -38,6 +38,35 @@ func NewAccountRepo(database *db.Database, encKey []byte) *AccountRepo {
 	return &AccountRepo{db: database, encKey: encKey}
 }
 
+func nullStr(ns sql.NullString) string {
+	if ns.Valid {
+		return ns.String
+	}
+	return ""
+}
+
+func nullTime(nt sql.NullTime) *time.Time {
+	if nt.Valid {
+		return &nt.Time
+	}
+	return nil
+}
+
+func toNullable(s string) interface{} {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func checkAffected(result sql.Result, entity string) error {
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("%s not found", entity)
+	}
+	return nil
+}
+
 func modelsToString(models []string) string {
 	return strings.Join(models, ",")
 }
@@ -116,23 +145,13 @@ func (r *AccountRepo) CreateBound(provider, label, authType, oauthProvider, acce
 		a.TokenExpiresAt = &t
 	}
 
-	var ownerVal interface{}
-	if ownerUserID != "" {
-		ownerVal = ownerUserID
-	}
-
-	var oauthProviderVal interface{}
-	if oauthProvider != "" {
-		oauthProviderVal = oauthProvider
-	}
-
 	_, err = r.db.DB.Exec(
 		`INSERT INTO accounts (id, provider, label, credential, models, max_concurrent, enabled, config_managed, created_at, auth_type, oauth_provider, refresh_token, token_expires_at, owner_user_id)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.ID, a.Provider, a.Label, encAccess,
 		modelsToString(models), a.MaxConcurrent,
 		a.Enabled, a.ConfigManaged, a.CreatedAt,
-		authType, oauthProviderVal, encRefresh, tokenExpiresAt, ownerVal,
+		authType, toNullable(oauthProvider), encRefresh, tokenExpiresAt, toNullable(ownerUserID),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create bound account: %w", err)
@@ -176,9 +195,7 @@ func (r *AccountRepo) scanInto(s scanner) (*Account, error) {
 	} else {
 		a.AuthType = "api_key"
 	}
-	if oauthProvider.Valid {
-		a.OAuthProvider = oauthProvider.String
-	}
+	a.OAuthProvider = nullStr(oauthProvider)
 	if encRefreshToken.Valid && encRefreshToken.String != "" {
 		decRefresh, err := crypto.Decrypt(r.encKey, encRefreshToken.String)
 		if err != nil {
@@ -186,13 +203,8 @@ func (r *AccountRepo) scanInto(s scanner) (*Account, error) {
 		}
 		a.RefreshToken = decRefresh
 	}
-	if tokenExpiresAt.Valid {
-		t := tokenExpiresAt.Time
-		a.TokenExpiresAt = &t
-	}
-	if ownerUserID.Valid {
-		a.OwnerUserID = ownerUserID.String
-	}
+	a.TokenExpiresAt = nullTime(tokenExpiresAt)
+	a.OwnerUserID = nullStr(ownerUserID)
 	a.NeedsReauth = needsReauth
 
 	return &a, nil
@@ -288,11 +300,7 @@ func (r *AccountRepo) UpdateCredential(id, accessToken, refreshToken string, exp
 	if err != nil {
 		return err
 	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("account not found: %s", id)
-	}
-	return nil
+	return checkAffected(result, "account")
 }
 
 // SetNeedsReauth marks or clears the needs_reauth flag for an account.
@@ -304,11 +312,7 @@ func (r *AccountRepo) SetNeedsReauth(id string, needsReauth bool) error {
 	if err != nil {
 		return err
 	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("account not found: %s", id)
-	}
-	return nil
+	return checkAffected(result, "account")
 }
 
 func (r *AccountRepo) Update(id string, label string, enabled bool) error {
@@ -319,11 +323,7 @@ func (r *AccountRepo) Update(id string, label string, enabled bool) error {
 	if err != nil {
 		return err
 	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("account not found: %s", id)
-	}
-	return nil
+	return checkAffected(result, "account")
 }
 
 func (r *AccountRepo) Delete(id string) error {
@@ -331,11 +331,7 @@ func (r *AccountRepo) Delete(id string) error {
 	if err != nil {
 		return err
 	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("account not found: %s", id)
-	}
-	return nil
+	return checkAffected(result, "account")
 }
 
 func (r *AccountRepo) SetEnabled(id string, enabled bool) error {
@@ -346,9 +342,5 @@ func (r *AccountRepo) SetEnabled(id string, enabled bool) error {
 	if err != nil {
 		return err
 	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("account not found: %s", id)
-	}
-	return nil
+	return checkAffected(result, "account")
 }

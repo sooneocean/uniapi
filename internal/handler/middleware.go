@@ -211,7 +211,7 @@ func RequestLogMiddleware() gin.HandlerFunc {
 func CSRFMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Skip for /v1/* (API key auth, not cookie-based)
-		if len(c.Request.URL.Path) >= 3 && c.Request.URL.Path[:3] == "/v1" {
+		if strings.HasPrefix(c.Request.URL.Path, "/v1") {
 			c.Next()
 			return
 		}

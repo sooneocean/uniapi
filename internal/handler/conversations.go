@@ -11,6 +11,19 @@ import (
 	"github.com/sooneocean/uniapi/internal/router"
 )
 
+func (h *ConversationHandler) requireOwner(c *gin.Context, convoID, userID string) (*repo.Conversation, bool) {
+	conv, err := h.convoRepo.GetByID(convoID)
+	if err != nil {
+		notFound(c, errNotFound)
+		return nil, false
+	}
+	if conv.UserID != userID {
+		forbidden(c, "forbidden")
+		return nil, false
+	}
+	return conv, true
+}
+
 // ConversationHandler handles conversation-related API routes.
 type ConversationHandler struct {
 	convoRepo *repo.ConversationRepo
@@ -78,13 +91,8 @@ func (h *ConversationHandler) GetConversation(c *gin.Context) {
 		return
 	}
 	id := c.Param("id")
-	conv, err := h.convoRepo.GetByID(id)
-	if err != nil {
-		notFound(c, "conversation not found")
-		return
-	}
-	if conv.UserID != userID {
-		forbidden(c, "forbidden")
+	conv, ok := h.requireOwner(c, id, userID)
+	if !ok {
 		return
 	}
 	msgs, err := h.convoRepo.GetMessages(id)
@@ -116,13 +124,7 @@ func (h *ConversationHandler) UpdateConversation(c *gin.Context) {
 		return
 	}
 	id := c.Param("id")
-	conv, err := h.convoRepo.GetByID(id)
-	if err != nil {
-		notFound(c, "conversation not found")
-		return
-	}
-	if conv.UserID != userID {
-		forbidden(c, "forbidden")
+	if _, ok := h.requireOwner(c, id, userID); !ok {
 		return
 	}
 	var req updateConversationRequest
@@ -148,13 +150,7 @@ func (h *ConversationHandler) DeleteConversation(c *gin.Context) {
 		return
 	}
 	id := c.Param("id")
-	conv, err := h.convoRepo.GetByID(id)
-	if err != nil {
-		notFound(c, "conversation not found")
-		return
-	}
-	if conv.UserID != userID {
-		forbidden(c, "forbidden")
+	if _, ok := h.requireOwner(c, id, userID); !ok {
 		return
 	}
 	if err := h.convoRepo.Delete(id); err != nil {
@@ -171,13 +167,7 @@ func (h *ConversationHandler) ShareConversation(c *gin.Context) {
 		return
 	}
 	convoID := c.Param("id")
-	conv, err := h.convoRepo.GetByID(convoID)
-	if err != nil {
-		notFound(c, "conversation not found")
-		return
-	}
-	if conv.UserID != userID {
-		forbidden(c, "forbidden")
+	if _, ok := h.requireOwner(c, convoID, userID); !ok {
 		return
 	}
 	token := uuid.New().String()[:12]
@@ -195,13 +185,7 @@ func (h *ConversationHandler) UnshareConversation(c *gin.Context) {
 		return
 	}
 	convoID := c.Param("id")
-	conv, err := h.convoRepo.GetByID(convoID)
-	if err != nil {
-		notFound(c, "conversation not found")
-		return
-	}
-	if conv.UserID != userID {
-		forbidden(c, "forbidden")
+	if _, ok := h.requireOwner(c, convoID, userID); !ok {
 		return
 	}
 	if err := h.convoRepo.SetShareToken(convoID, ""); err != nil {
@@ -213,20 +197,12 @@ func (h *ConversationHandler) UnshareConversation(c *gin.Context) {
 
 // PUT /api/conversations/:id/folder
 func (h *ConversationHandler) UpdateConversationFolder(c *gin.Context) {
-	userIDVal, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": errNotAuthenticated}})
+	userID, ok := userIDFromContext(c)
+	if !ok {
 		return
 	}
-	userID, _ := userIDVal.(string)
 	id := c.Param("id")
-	conv, err := h.convoRepo.GetByID(id)
-	if err != nil {
-		notFound(c, "conversation not found")
-		return
-	}
-	if conv.UserID != userID {
-		forbidden(c, "forbidden")
+	if _, ok := h.requireOwner(c, id, userID); !ok {
 		return
 	}
 	var req struct {
@@ -245,20 +221,12 @@ func (h *ConversationHandler) UpdateConversationFolder(c *gin.Context) {
 
 // PUT /api/conversations/:id/pin
 func (h *ConversationHandler) ToggleConversationPin(c *gin.Context) {
-	userIDVal, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": errNotAuthenticated}})
+	userID, ok := userIDFromContext(c)
+	if !ok {
 		return
 	}
-	userID, _ := userIDVal.(string)
 	id := c.Param("id")
-	conv, err := h.convoRepo.GetByID(id)
-	if err != nil {
-		notFound(c, "conversation not found")
-		return
-	}
-	if conv.UserID != userID {
-		forbidden(c, "forbidden")
+	if _, ok := h.requireOwner(c, id, userID); !ok {
 		return
 	}
 	if err := h.convoRepo.TogglePin(id); err != nil {
@@ -275,13 +243,7 @@ func (h *ConversationHandler) AutoTitle(c *gin.Context) {
 		return
 	}
 	convoID := c.Param("id")
-	conv, err := h.convoRepo.GetByID(convoID)
-	if err != nil {
-		notFound(c, "conversation not found")
-		return
-	}
-	if conv.UserID != userID {
-		forbidden(c, "forbidden")
+	if _, ok := h.requireOwner(c, convoID, userID); !ok {
 		return
 	}
 	messages, _ := h.convoRepo.GetMessages(convoID)

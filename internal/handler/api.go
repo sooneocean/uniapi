@@ -96,6 +96,67 @@ type chatMsg struct {
 	ToolCalls  interface{} `json:"tool_calls,omitempty"`
 }
 
+func parseContentBlocks(raw interface{}) []provider.ContentBlock {
+	switch v := raw.(type) {
+	case string:
+		return []provider.ContentBlock{{Type: "text", Text: v}}
+	case []interface{}:
+		var blocks []provider.ContentBlock
+		for _, item := range v {
+			block, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			cb := provider.ContentBlock{}
+			if t, ok := block["type"].(string); ok {
+				cb.Type = t
+			}
+			if t, ok := block["text"].(string); ok {
+				cb.Text = t
+			}
+			if iu, ok := block["image_url"].(map[string]interface{}); ok {
+				if url, ok := iu["url"].(string); ok {
+					cb.ImageURL = url
+				}
+			}
+			blocks = append(blocks, cb)
+		}
+		return blocks
+	default:
+		return []provider.ContentBlock{{Type: "text", Text: fmt.Sprintf("%v", raw)}}
+	}
+}
+
+func (h *APIHandler) resolveAlias(model, userID string) string {
+	cacheKey := "alias:" + model
+	if h.aliasCache != nil {
+		if cached, ok := h.aliasCache.Get(cacheKey); ok {
+			if resolved, ok := cached.(string); ok && resolved != "" {
+				return resolved
+			}
+			return model
+		}
+	}
+	if h.db == nil {
+		return model
+	}
+	var resolved string
+	err := h.db.QueryRow(
+		"SELECT model_id FROM model_aliases WHERE alias = ? AND (user_id IS NULL OR user_id = ?) ORDER BY user_id DESC LIMIT 1",
+		model, userID,
+	).Scan(&resolved)
+	if err == nil {
+		if h.aliasCache != nil {
+			h.aliasCache.Set(cacheKey, resolved, 5*time.Minute)
+		}
+		return resolved
+	}
+	if h.aliasCache != nil {
+		h.aliasCache.Set(cacheKey, "", 5*time.Minute)
+	}
+	return model
+}
+
 func (h *APIHandler) ChatCompletions(c *gin.Context) {
 	var req chatCompletionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -156,34 +217,11 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 			messages[i] = provider.Message{Role: "assistant", Content: blocks}
 			continue
 		}
-		switch v := m.Content.(type) {
-		case string:
-			if len(v) > 1_000_000 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "message content too large"}})
-				return
-			}
-			messages[i] = provider.Message{Role: m.Role, Content: []provider.ContentBlock{{Type: "text", Text: v}}}
-		case []interface{}:
-			var blocks []provider.ContentBlock
-			for _, item := range v {
-				if block, ok := item.(map[string]interface{}); ok {
-					cb := provider.ContentBlock{Type: fmt.Sprintf("%v", block["type"])}
-					if t, ok := block["text"]; ok {
-						cb.Text = fmt.Sprintf("%v", t)
-					}
-					if iu, ok := block["image_url"]; ok {
-						if iuMap, ok := iu.(map[string]interface{}); ok {
-							cb.ImageURL = fmt.Sprintf("%v", iuMap["url"])
-						}
-					}
-					blocks = append(blocks, cb)
-				}
-			}
-			messages[i] = provider.Message{Role: m.Role, Content: blocks}
-		default:
-			// Fallback: treat as empty text
-			messages[i] = provider.Message{Role: m.Role, Content: []provider.ContentBlock{{Type: "text", Text: ""}}}
+		if v, ok := m.Content.(string); ok && len(v) > 1_000_000 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "message content too large"}})
+			return
 		}
+		messages[i] = provider.Message{Role: m.Role, Content: parseContentBlocks(m.Content)}
 	}
 	userID := ""
 	if uid, exists := c.Get("user_id"); exists {
@@ -208,37 +246,7 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// Resolve model alias
-	if h.db != nil {
-		aliasCacheKey := "alias:" + chatReq.Model
-		resolved := false
-		if h.aliasCache != nil {
-			if cached, ok := h.aliasCache.Get(aliasCacheKey); ok {
-				if resolvedModel, ok := cached.(string); ok && resolvedModel != "" {
-					chatReq.Model = resolvedModel
-					resolved = true
-				} else {
-					// cached miss — skip DB lookup
-					resolved = true
-				}
-			}
-		}
-		if !resolved {
-			var resolvedModel string
-			err := h.db.QueryRow(
-				"SELECT model_id FROM model_aliases WHERE alias = ? AND (user_id IS NULL OR user_id = ?) ORDER BY user_id DESC LIMIT 1",
-				chatReq.Model, userID,
-			).Scan(&resolvedModel)
-			if err == nil {
-				chatReq.Model = resolvedModel
-				if h.aliasCache != nil {
-					h.aliasCache.Set(aliasCacheKey, resolvedModel, 5*time.Minute)
-				}
-			} else if h.aliasCache != nil {
-				// Cache the miss to avoid repeated DB queries for real model names
-				h.aliasCache.Set(aliasCacheKey, "", 5*time.Minute)
-			}
-		}
-	}
+	chatReq.Model = h.resolveAlias(chatReq.Model, userID)
 
 	// Quota check
 	if userID != "" {

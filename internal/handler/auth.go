@@ -35,6 +35,12 @@ func (h *AuthHandler) SetWebhookManager(mgr *webhook.Manager) {
 	h.webhookMgr = mgr
 }
 
+func (h *AuthHandler) setTokenCookie(c *gin.Context, token string, maxAge int) {
+	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("token", token, maxAge, "/", "", secure, true)
+}
+
 func (h *AuthHandler) Status(c *gin.Context) {
 	needsSetup, err := h.database.NeedsSetup()
 	if err != nil {
@@ -134,9 +140,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("token", token, 7*24*3600, "/", "", secure, true)
+	h.setTokenCookie(c, token, 7*24*3600)
 
 	if h.audit != nil {
 		h.audit.Log(user.ID, user.Username, "login", "user", user.ID, "", c.ClientIP())
@@ -160,9 +164,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
-	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("token", "", -1, "/", "", secure, true)
+	h.setTokenCookie(c, "", -1)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 

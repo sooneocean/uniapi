@@ -74,14 +74,13 @@ func (h *RoomsHandler) List(c *gin.Context) {
 		return
 	}
 	defer rows.Close()
-	var rooms []ChatRoom
+	rooms := []ChatRoom{}
 	for rows.Next() {
 		var r ChatRoom
-		rows.Scan(&r.ID, &r.Name, &r.CreatedBy, &r.CreatedAt)
+		if err := rows.Scan(&r.ID, &r.Name, &r.CreatedBy, &r.CreatedAt); err != nil {
+			continue
+		}
 		rooms = append(rooms, r)
-	}
-	if rooms == nil {
-		rooms = []ChatRoom{}
 	}
 	c.JSON(http.StatusOK, rooms)
 }
@@ -103,8 +102,7 @@ func (h *RoomsHandler) Join(c *gin.Context) {
 func (h *RoomsHandler) GetMessages(c *gin.Context) {
 	userID := mustUserID(c)
 	roomID := c.Param("id")
-	if !h.isMember(roomID, userID) {
-		forbidden(c, "not a member")
+	if !h.requireMember(c, roomID, userID) {
 		return
 	}
 	rows, err := h.db.Query(`
@@ -115,14 +113,13 @@ func (h *RoomsHandler) GetMessages(c *gin.Context) {
 		return
 	}
 	defer rows.Close()
-	var msgs []RoomMessage
+	msgs := []RoomMessage{}
 	for rows.Next() {
 		var m RoomMessage
-		rows.Scan(&m.ID, &m.RoomID, &m.UserID, &m.Username, &m.Role, &m.Content, &m.Model, &m.CreatedAt)
+		if err := rows.Scan(&m.ID, &m.RoomID, &m.UserID, &m.Username, &m.Role, &m.Content, &m.Model, &m.CreatedAt); err != nil {
+			continue
+		}
 		msgs = append(msgs, m)
-	}
-	if msgs == nil {
-		msgs = []RoomMessage{}
 	}
 	c.JSON(http.StatusOK, msgs)
 }
@@ -130,8 +127,7 @@ func (h *RoomsHandler) GetMessages(c *gin.Context) {
 func (h *RoomsHandler) SendMessage(c *gin.Context) {
 	userID := mustUserID(c)
 	roomID := c.Param("id")
-	if !h.isMember(roomID, userID) {
-		forbidden(c, "not a member")
+	if !h.requireMember(c, roomID, userID) {
 		return
 	}
 
@@ -280,8 +276,7 @@ func (h *RoomsHandler) Delete(c *gin.Context) {
 func (h *RoomsHandler) GetMembers(c *gin.Context) {
 	userID := mustUserID(c)
 	roomID := c.Param("id")
-	if !h.isMember(roomID, userID) {
-		forbidden(c, "not a member")
+	if !h.requireMember(c, roomID, userID) {
 		return
 	}
 	rows, err := h.db.Query(`
@@ -294,14 +289,13 @@ func (h *RoomsHandler) GetMembers(c *gin.Context) {
 		return
 	}
 	defer rows.Close()
-	var members []gin.H
+	members := []gin.H{}
 	for rows.Next() {
 		var id, username, joinedAt string
-		rows.Scan(&id, &username, &joinedAt)
+		if err := rows.Scan(&id, &username, &joinedAt); err != nil {
+			continue
+		}
 		members = append(members, gin.H{"id": id, "username": username, "joined_at": joinedAt})
-	}
-	if members == nil {
-		members = []gin.H{}
 	}
 	c.JSON(http.StatusOK, members)
 }
@@ -310,4 +304,14 @@ func (h *RoomsHandler) isMember(roomID, userID string) bool {
 	var count int
 	h.db.QueryRow("SELECT COUNT(*) FROM chat_room_members WHERE room_id = ? AND user_id = ?", roomID, userID).Scan(&count)
 	return count > 0
+}
+
+func (h *RoomsHandler) requireMember(c *gin.Context, roomID, userID string) bool {
+	var count int
+	h.db.QueryRow("SELECT COUNT(*) FROM chat_room_members WHERE room_id = ? AND user_id = ?", roomID, userID).Scan(&count)
+	if count == 0 {
+		forbidden(c, "not a room member")
+		return false
+	}
+	return true
 }
