@@ -8,6 +8,7 @@ import ThemeToggle from './ThemeToggle';
 import LanguageToggle from './LanguageToggle';
 import ShortcutHelp from './ShortcutHelp';
 import CompareMode from './CompareMode';
+import ChatRooms from './ChatRooms';
 import { getMe, logout, getConversations, createConversation } from '../api/client';
 import { useTheme } from '../hooks/useTheme';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
@@ -24,6 +25,7 @@ export default function ChatLayout({ onShowAccounts, onShowPlayground }: Props) 
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showCompare, setShowCompare] = useState(false);
+  const [showRooms, setShowRooms] = useState(false);
   const [userRole, setUserRole] = useState<string>('member');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
@@ -128,12 +130,20 @@ export default function ChatLayout({ onShowAccounts, onShowPlayground }: Props) 
           {/* Right side icons */}
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowRooms(true)}
+              title="Chat Rooms"
+              className="text-gray-400 hover:text-white transition-colors text-sm px-2 py-1 rounded hover:bg-gray-700 border border-gray-600"
+              aria-label="Chat Rooms"
+            >
+              Rooms
+            </button>
+            <button
               onClick={() => onShowPlayground?.()}
               title="API Playground"
               className="text-gray-400 hover:text-white transition-colors text-sm px-2 py-1 rounded hover:bg-gray-700 border border-gray-600"
               aria-label="API Playground"
             >
-              🧪 API
+              API
             </button>
             <button
               onClick={() => setShowCompare(true)}
@@ -190,6 +200,20 @@ export default function ChatLayout({ onShowAccounts, onShowPlayground }: Props) 
 
       {showCompare && (
         <CompareMode onClose={() => setShowCompare(false)} />
+      )}
+
+      {showRooms && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-gray-800 rounded-none md:rounded-xl shadow-2xl w-full md:max-w-4xl md:mx-4 h-full md:max-h-[85vh] flex flex-col" style={{ background: 'var(--bg-secondary)' }}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
+              <h1 className="text-white text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Chat Rooms</h1>
+              <button onClick={() => setShowRooms(false)} className="text-gray-400 hover:text-white transition-colors text-xl leading-none">&times;</button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <ChatRooms />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

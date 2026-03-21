@@ -325,3 +325,26 @@ export async function reauthAccount(id: string) {
 export async function getModelAliases() { return (await api.get('/api/model-aliases')).data; }
 export async function createModelAlias(alias: string, modelId: string) { return (await api.post('/api/model-aliases', { alias, model_id: modelId })).data; }
 export async function deleteModelAlias(alias: string) { await api.delete(`/api/model-aliases/${alias}`); }
+
+// Knowledge Base (RAG)
+export async function uploadKnowledge(title: string, content: string, shared: boolean) {
+  return (await api.post('/api/knowledge', { title, content, shared })).data;
+}
+export async function getKnowledge() { return (await api.get('/api/knowledge')).data; }
+export async function deleteKnowledge(id: string) { await api.delete(`/api/knowledge/${id}`); }
+
+// Chat Rooms
+export async function createRoom(name: string) { return (await api.post('/api/rooms', { name })).data; }
+export async function getRooms() { return (await api.get('/api/rooms')).data; }
+export async function joinRoom(id: string) { await api.post(`/api/rooms/${id}/join`); }
+export async function getRoomMessages(id: string) { return (await api.get(`/api/rooms/${id}/messages`)).data; }
+export async function sendRoomMessage(id: string, content: string, model?: string) {
+  return (await api.post(`/api/rooms/${id}/messages`, { content, model })).data;
+}
+export async function deleteRoom(id: string) { await api.delete(`/api/rooms/${id}`); }
+
+// Plugins
+export async function getPlugins() { return (await api.get('/api/plugins')).data; }
+export async function registerPlugin(data: any) { return (await api.post('/api/plugins', data)).data; }
+export async function deletePlugin(id: string) { await api.delete(`/api/plugins/${id}`); }
+export async function testPlugin(id: string, input: any) { return (await api.post(`/api/plugins/${id}/test`, input)).data; }

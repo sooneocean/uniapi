@@ -6,8 +6,10 @@ import UsageDashboard from './UsageDashboard';
 import APIKeySettings from './APIKeySettings';
 import AdminDashboard from './AdminDashboard';
 import ModelAliases from './ModelAliases';
+import KnowledgeBase from './KnowledgeBase';
+import PluginManager from './PluginManager';
 
-type Tab = 'dashboard' | 'providers' | 'users' | 'usage' | 'apikeys' | 'aliases';
+type Tab = 'dashboard' | 'providers' | 'users' | 'usage' | 'apikeys' | 'aliases' | 'knowledge' | 'plugins';
 
 interface SettingsProps {
   onClose: () => void;
@@ -25,6 +27,8 @@ export default function Settings({ onClose, userRole }: SettingsProps) {
     { id: 'usage', label: t('settings.usage') },
     { id: 'apikeys', label: t('settings.apiKeys') },
     { id: 'aliases', label: 'Model Aliases' },
+    { id: 'knowledge', label: 'Knowledge' },
+    { id: 'plugins', label: 'Plugins' },
   ];
 
   const visibleTabs = tabs.filter((t) => !t.adminOnly || userRole === 'admin');
@@ -69,6 +73,8 @@ export default function Settings({ onClose, userRole }: SettingsProps) {
           {activeTab === 'usage' && <UsageDashboard />}
           {activeTab === 'apikeys' && <APIKeySettings />}
           {activeTab === 'aliases' && <ModelAliases />}
+          {activeTab === 'knowledge' && <KnowledgeBase />}
+          {activeTab === 'plugins' && <PluginManager />}
         </div>
       </div>
     </div>

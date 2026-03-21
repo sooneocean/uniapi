@@ -13,7 +13,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/sooneocean/uniapi/internal/cache"
 	"github.com/sooneocean/uniapi/internal/metrics"
+	"github.com/sooneocean/uniapi/internal/plugin"
 	"github.com/sooneocean/uniapi/internal/provider"
+	"github.com/sooneocean/uniapi/internal/rag"
 	"github.com/sooneocean/uniapi/internal/router"
 	"github.com/sooneocean/uniapi/internal/usage"
 	"github.com/sooneocean/uniapi/internal/webhook"
@@ -26,6 +28,16 @@ type APIHandler struct {
 	respCache  *ResponseCache
 	aliasCache *cache.MemCache
 	db         *sql.DB
+	ragMgr     *rag.Manager
+	pluginMgr  *plugin.Manager
+}
+
+func (h *APIHandler) SetRAGManager(m *rag.Manager) {
+	h.ragMgr = m
+}
+
+func (h *APIHandler) SetPluginManager(m *plugin.Manager) {
+	h.pluginMgr = m
 }
 
 func NewAPIHandler(r *router.Router, rec *usage.Recorder) *APIHandler {
@@ -210,6 +222,34 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 				h.aliasCache.Set(aliasCacheKey, "", 5*time.Minute)
 			}
 		}
+	}
+
+	// RAG: inject knowledge base context
+	if h.ragMgr != nil {
+		queryText := ""
+		for _, m := range chatReq.Messages {
+			if m.Role == "user" && len(m.Content) > 0 {
+				queryText = m.Content[0].Text
+				break
+			}
+		}
+		if queryText != "" {
+			chunks, _ := h.ragMgr.Search(userID, queryText, 3)
+			if len(chunks) > 0 {
+				context := "Relevant context from knowledge base:\n\n"
+				for _, ch := range chunks {
+					context += ch.Content + "\n---\n"
+				}
+				sysMsg := provider.Message{Role: "system", Content: []provider.ContentBlock{{Type: "text", Text: context}}}
+				chatReq.Messages = append([]provider.Message{sysMsg}, chatReq.Messages...)
+			}
+		}
+	}
+
+	// Plugins: inject as tools
+	if h.pluginMgr != nil {
+		pluginTools, _ := h.pluginMgr.ToTools(userID)
+		chatReq.Tools = append(chatReq.Tools, pluginTools...)
 	}
 
 	if req.Stream {

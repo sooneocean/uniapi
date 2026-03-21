@@ -24,10 +24,12 @@ import (
 	"github.com/sooneocean/uniapi/internal/handler"
 	"github.com/sooneocean/uniapi/internal/logger"
 	"github.com/sooneocean/uniapi/internal/oauth"
+	"github.com/sooneocean/uniapi/internal/plugin"
 	"github.com/sooneocean/uniapi/internal/provider"
 	pAnthropic "github.com/sooneocean/uniapi/internal/provider/anthropic"
 	pGemini "github.com/sooneocean/uniapi/internal/provider/gemini"
 	pOpenai "github.com/sooneocean/uniapi/internal/provider/openai"
+	"github.com/sooneocean/uniapi/internal/rag"
 	"github.com/sooneocean/uniapi/internal/repo"
 	"github.com/sooneocean/uniapi/internal/router"
 	"github.com/sooneocean/uniapi/internal/usage"
@@ -214,6 +216,12 @@ func main() {
 		}
 	}
 
+	// RAG manager
+	ragMgr := rag.NewManager(database.DB)
+
+	// Plugin manager
+	pluginMgr := plugin.NewManager(database.DB)
+
 	// Webhook manager
 	webhookCfgs := make([]webhook.WebhookConfig, len(cfg.Webhooks))
 	for i, wh := range cfg.Webhooks {
@@ -367,8 +375,33 @@ func main() {
 	apiAuth.POST("/model-aliases", modelAliasHandler.CreateModelAlias)
 	apiAuth.DELETE("/model-aliases/:alias", modelAliasHandler.DeleteModelAlias)
 
+	// Knowledge base routes
+	knowledgeHandler := handler.NewKnowledgeHandler(ragMgr)
+	apiAuth.POST("/knowledge", knowledgeHandler.Upload)
+	apiAuth.GET("/knowledge", knowledgeHandler.List)
+	apiAuth.DELETE("/knowledge/:id", knowledgeHandler.Delete)
+
+	// Plugin routes
+	pluginHandler := handler.NewPluginHandler(pluginMgr)
+	apiAuth.GET("/plugins", pluginHandler.List)
+	apiAuth.POST("/plugins", pluginHandler.Register)
+	apiAuth.DELETE("/plugins/:id", pluginHandler.Delete)
+	apiAuth.POST("/plugins/:id/test", pluginHandler.Test)
+
+	// Chat rooms routes
+	roomsHandler := handler.NewRoomsHandler(database.DB, rtr)
+	apiAuth.POST("/rooms", roomsHandler.Create)
+	apiAuth.GET("/rooms", roomsHandler.List)
+	apiAuth.POST("/rooms/:id/join", roomsHandler.Join)
+	apiAuth.GET("/rooms/:id/messages", roomsHandler.GetMessages)
+	apiAuth.POST("/rooms/:id/messages", roomsHandler.SendMessage)
+	apiAuth.DELETE("/rooms/:id", roomsHandler.Delete)
+	apiAuth.GET("/rooms/:id/members", roomsHandler.GetMembers)
+
 	// API routes
 	apiHandler := handler.NewAPIHandlerWithCache(rtr, recorder, webhookMgr, respCache, database.DB, memCache)
+	apiHandler.SetRAGManager(ragMgr)
+	apiHandler.SetPluginManager(pluginMgr)
 	v1 := engine.Group("/v1")
 	v1.Use(handler.APIKeyAuthMiddleware(database.DB, jwtMgr, memCache))
 	apiLimiter := handler.RateLimitMiddleware(memCache, 60, 1*time.Minute) // 60 req/min per IP
