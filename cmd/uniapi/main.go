@@ -35,12 +35,20 @@ import (
 	"github.com/sooneocean/uniapi/internal/webhook"
 )
 
+var version = "dev"
+
 func main() {
 	port := flag.Int("port", 0, "server port")
 	dataDir := flag.String("data-dir", "", "data directory")
 	secret := flag.String("secret", "", "encryption secret")
 	cfgPath := flag.String("config", "", "config file path")
+	showVersion := flag.Bool("version", false, "show version")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("UniAPI " + version)
+		return
+	}
 
 	// Load config
 	if *cfgPath == "" {
@@ -386,6 +394,7 @@ func main() {
 			"db":        map[bool]string{true: "connected", false: "disconnected"}[dbOK],
 			"models":    modelCount,
 			"providers": len(cfg.Providers),
+			"version":   version,
 		})
 	})
 
