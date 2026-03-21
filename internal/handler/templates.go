@@ -22,14 +22,14 @@ func NewTemplatesHandler(database *db.Database) *TemplatesHandler {
 func (h *TemplatesHandler) List(c *gin.Context) {
 	uid, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": "not authenticated"}})
 		return
 	}
 	userID, _ := uid.(string)
 
 	templates, err := h.templateRepo.List(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	if templates == nil {
@@ -51,20 +51,20 @@ type templateRequest struct {
 func (h *TemplatesHandler) Create(c *gin.Context) {
 	uid, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": "not authenticated"}})
 		return
 	}
 	userID, _ := uid.(string)
 
 	var req templateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 
 	tmpl, err := h.templateRepo.Create(userID, req.Title, req.Description, req.SystemPrompt, req.UserPrompt, req.Tags, req.Shared)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	c.JSON(http.StatusCreated, tmpl)
@@ -74,7 +74,7 @@ func (h *TemplatesHandler) Create(c *gin.Context) {
 func (h *TemplatesHandler) Update(c *gin.Context) {
 	uid, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": "not authenticated"}})
 		return
 	}
 	userID, _ := uid.(string)
@@ -82,32 +82,32 @@ func (h *TemplatesHandler) Update(c *gin.Context) {
 
 	existing, err := h.templateRepo.GetByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "template not found"})
+		notFound(c, "template not found")
 		return
 	}
 	if existing.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 
 	var req templateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 
 	if err := h.templateRepo.Update(id, req.Title, req.Description, req.SystemPrompt, req.UserPrompt, req.Tags, req.Shared); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
 
 // DELETE /api/templates/:id
 func (h *TemplatesHandler) Delete(c *gin.Context) {
 	uid, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": "not authenticated"}})
 		return
 	}
 	userID, _ := uid.(string)
@@ -115,19 +115,19 @@ func (h *TemplatesHandler) Delete(c *gin.Context) {
 
 	existing, err := h.templateRepo.GetByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "template not found"})
+		notFound(c, "template not found")
 		return
 	}
 	if existing.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 
 	if err := h.templateRepo.Delete(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
 
 // POST /api/templates/:id/use
@@ -136,7 +136,7 @@ func (h *TemplatesHandler) Use(c *gin.Context) {
 
 	tmpl, err := h.templateRepo.IncrementUseCount(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "template not found"})
+		notFound(c, "template not found")
 		return
 	}
 	c.JSON(http.StatusOK, tmpl)

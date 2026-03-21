@@ -32,7 +32,7 @@ func (h *ThemesHandler) List(c *gin.Context) {
 		`SELECT id, user_id, name, colors, shared, created_at FROM themes WHERE user_id = ? OR shared = 1 ORDER BY created_at DESC`,
 		userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	defer rows.Close()
@@ -60,7 +60,7 @@ func (h *ThemesHandler) Create(c *gin.Context) {
 		Shared bool   `json:"shared"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	id := uuid.New().String()
@@ -68,7 +68,7 @@ func (h *ThemesHandler) Create(c *gin.Context) {
 		`INSERT INTO themes (id, user_id, name, colors, shared) VALUES (?,?,?,?,?)`,
 		id, userID, req.Name, req.Colors, req.Shared)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	c.JSON(http.StatusCreated, Theme{ID: id, UserID: userID, Name: req.Name, Colors: req.Colors, Shared: req.Shared})
@@ -80,13 +80,16 @@ func (h *ThemesHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 
 	var ownerID string
-	h.db.QueryRow("SELECT user_id FROM themes WHERE id = ?", id).Scan(&ownerID)
-	if ownerID == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "theme not found"})
+	if err := h.db.QueryRow("SELECT user_id FROM themes WHERE id = ?", id).Scan(&ownerID); err != nil {
+		if err == sql.ErrNoRows {
+			notFound(c, "theme not found")
+			return
+		}
+		serverError(c, "database error")
 		return
 	}
 	if ownerID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 	h.db.Exec("DELETE FROM themes WHERE id = ?", id)
@@ -102,13 +105,13 @@ func (h *ThemesHandler) Apply(c *gin.Context) {
 	var count int
 	h.db.QueryRow("SELECT COUNT(*) FROM themes WHERE id = ? AND (user_id = ? OR shared = 1)", id, userID).Scan(&count)
 	if count == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "theme not found"})
+		notFound(c, "theme not found")
 		return
 	}
 
 	_, err := h.db.Exec("UPDATE users SET active_theme = ? WHERE id = ?", id, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "active_theme": id})

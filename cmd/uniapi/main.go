@@ -27,9 +27,6 @@ import (
 	"github.com/sooneocean/uniapi/internal/oauth"
 	"github.com/sooneocean/uniapi/internal/plugin"
 	"github.com/sooneocean/uniapi/internal/provider"
-	pAnthropic "github.com/sooneocean/uniapi/internal/provider/anthropic"
-	pGemini "github.com/sooneocean/uniapi/internal/provider/gemini"
-	pOpenai "github.com/sooneocean/uniapi/internal/provider/openai"
 	"github.com/sooneocean/uniapi/internal/rag"
 	"github.com/sooneocean/uniapi/internal/repo"
 	"github.com/sooneocean/uniapi/internal/router"
@@ -202,16 +199,8 @@ func main() {
 			provCfg := provider.ProviderConfig{Name: pc.Name, Type: pc.Type, BaseURL: pc.BaseURL}
 			apiKey := acc.APIKey
 			credFunc := func() (string, string) { return apiKey, "api_key" }
-			switch pc.Type {
-			case "anthropic":
-				p = pAnthropic.NewAnthropic(provCfg, acc.Models, credFunc)
-			case "openai":
-				p = pOpenai.NewOpenAI(provCfg, acc.Models, credFunc)
-			case "gemini":
-				p = pGemini.NewGemini(provCfg, acc.Models, credFunc)
-			case "openai_compatible":
-				p = pOpenai.NewOpenAI(provCfg, acc.Models, credFunc)
-			default:
+			p = handler.CreateProvider(pc.Type, provCfg, acc.Models, credFunc)
+			if p == nil {
 				slog.Warn("unknown provider type", "type", pc.Type)
 				continue
 			}
@@ -233,17 +222,7 @@ func main() {
 			cache := newCredentialCache(acc.ID, acc.Credential, acc.AuthType, accountRepo)
 			credFunc := cache.Get
 			provCfg := provider.ProviderConfig{Name: acc.Provider, Type: acc.Provider}
-			var p provider.Provider
-			switch acc.Provider {
-			case "openai":
-				p = pOpenai.NewOpenAI(provCfg, acc.Models, credFunc)
-			case "anthropic":
-				p = pAnthropic.NewAnthropic(provCfg, acc.Models, credFunc)
-			case "gemini":
-				p = pGemini.NewGemini(provCfg, acc.Models, credFunc)
-			default:
-				p = pOpenai.NewOpenAI(provCfg, acc.Models, credFunc) // openai_compatible
-			}
+			p := handler.CreateProvider(acc.Provider, provCfg, acc.Models, credFunc)
 			rtr.AddAccountWithOwner(acc.ID, p, acc.MaxConcurrent, acc.OwnerUserID)
 			slog.Info("loaded DB account", "id", acc.ID, "provider", acc.Provider)
 		}
@@ -275,17 +254,7 @@ func main() {
 		cache := newCredentialCache(acc.ID, acc.Credential, acc.AuthType, accountRepo)
 		credFunc := cache.Get
 		provCfg := provider.ProviderConfig{Name: acc.Provider, Type: acc.Provider}
-		var p provider.Provider
-		switch acc.Provider {
-		case "openai":
-			p = pOpenai.NewOpenAI(provCfg, acc.Models, credFunc)
-		case "anthropic":
-			p = pAnthropic.NewAnthropic(provCfg, acc.Models, credFunc)
-		case "gemini":
-			p = pGemini.NewGemini(provCfg, acc.Models, credFunc)
-		default:
-			p = pOpenai.NewOpenAI(provCfg, acc.Models, credFunc) // openai_compatible
-		}
+		p := handler.CreateProvider(acc.Provider, provCfg, acc.Models, credFunc)
 		rtr.AddAccountWithOwner(acc.ID, p, acc.MaxConcurrent, acc.OwnerUserID)
 	}
 

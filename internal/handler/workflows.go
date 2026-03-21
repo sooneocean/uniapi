@@ -29,7 +29,7 @@ func (h *WorkflowsHandler) List(c *gin.Context) {
 		`SELECT id, user_id, name, description, steps, shared, run_count
 		 FROM workflows WHERE user_id = ? OR shared = 1 ORDER BY created_at DESC`, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	defer rows.Close()
@@ -62,7 +62,7 @@ func (h *WorkflowsHandler) Create(c *gin.Context) {
 		Shared      bool            `json:"shared"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 
@@ -72,7 +72,7 @@ func (h *WorkflowsHandler) Create(c *gin.Context) {
 		`INSERT INTO workflows (id, user_id, name, description, steps, shared) VALUES (?,?,?,?,?,?)`,
 		id, userID, req.Name, req.Description, string(stepsJSON), req.Shared)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	c.JSON(http.StatusCreated, workflow.Workflow{
@@ -87,13 +87,16 @@ func (h *WorkflowsHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 
 	var ownerID string
-	h.db.QueryRow("SELECT user_id FROM workflows WHERE id = ?", id).Scan(&ownerID)
-	if ownerID == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "workflow not found"})
+	if err := h.db.QueryRow("SELECT user_id FROM workflows WHERE id = ?", id).Scan(&ownerID); err != nil {
+		if err == sql.ErrNoRows {
+			notFound(c, "workflow not found")
+			return
+		}
+		serverError(c, "database error")
 		return
 	}
 	if ownerID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 
@@ -104,7 +107,7 @@ func (h *WorkflowsHandler) Update(c *gin.Context) {
 		Shared      bool            `json:"shared"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 
@@ -113,10 +116,10 @@ func (h *WorkflowsHandler) Update(c *gin.Context) {
 		`UPDATE workflows SET name=?, description=?, steps=?, shared=? WHERE id=?`,
 		req.Name, req.Description, string(stepsJSON), req.Shared, id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
 
 // DELETE /api/workflows/:id — delete
@@ -125,13 +128,16 @@ func (h *WorkflowsHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 
 	var ownerID string
-	h.db.QueryRow("SELECT user_id FROM workflows WHERE id = ?", id).Scan(&ownerID)
-	if ownerID == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "workflow not found"})
+	if err := h.db.QueryRow("SELECT user_id FROM workflows WHERE id = ?", id).Scan(&ownerID); err != nil {
+		if err == sql.ErrNoRows {
+			notFound(c, "workflow not found")
+			return
+		}
+		serverError(c, "database error")
 		return
 	}
 	if ownerID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 
@@ -151,11 +157,11 @@ func (h *WorkflowsHandler) Run(c *gin.Context) {
 		`SELECT id, user_id, name, description, steps, shared, run_count FROM workflows WHERE id = ? AND (user_id = ? OR shared = 1)`,
 		id, userID).Scan(&wf.ID, &wf.UserID, &wf.Name, &wf.Description, &stepsJSON, &sharedInt, &wf.RunCount)
 	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"error": "workflow not found"})
+		notFound(c, "workflow not found")
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	wf.Shared = sharedInt == 1
@@ -165,7 +171,7 @@ func (h *WorkflowsHandler) Run(c *gin.Context) {
 		Input string `json:"input" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 
@@ -177,7 +183,7 @@ func (h *WorkflowsHandler) Run(c *gin.Context) {
 
 	result, err := workflow.Execute(ctx, wf, req.Input, routeFn, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 

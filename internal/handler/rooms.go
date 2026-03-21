@@ -47,13 +47,13 @@ func (h *RoomsHandler) Create(c *gin.Context) {
 		Name string `json:"name" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	id := uuid.New().String()
 	_, err := h.db.Exec("INSERT INTO chat_rooms (id, name, created_by) VALUES (?,?,?)", id, req.Name, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	// Auto-join creator
@@ -70,7 +70,7 @@ func (h *RoomsHandler) List(c *gin.Context) {
 		WHERE crm.user_id = ?
 		ORDER BY cr.created_at DESC`, userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	defer rows.Close()
@@ -93,7 +93,7 @@ func (h *RoomsHandler) Join(c *gin.Context) {
 	var count int
 	h.db.QueryRow("SELECT COUNT(*) FROM chat_rooms WHERE id = ?", roomID).Scan(&count)
 	if count == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "room not found"})
+		notFound(c, "room not found")
 		return
 	}
 	h.db.Exec("INSERT OR IGNORE INTO chat_room_members (room_id, user_id) VALUES (?,?)", roomID, userID)
@@ -104,14 +104,14 @@ func (h *RoomsHandler) GetMessages(c *gin.Context) {
 	userID := mustUserID(c)
 	roomID := c.Param("id")
 	if !h.isMember(roomID, userID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "not a member"})
+		forbidden(c, "not a member")
 		return
 	}
 	rows, err := h.db.Query(`
 		SELECT id, room_id, COALESCE(user_id,''), username, role, content, COALESCE(model,''), created_at
 		FROM chat_room_messages WHERE room_id = ? ORDER BY created_at ASC LIMIT 100`, roomID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	defer rows.Close()
@@ -131,7 +131,7 @@ func (h *RoomsHandler) SendMessage(c *gin.Context) {
 	userID := mustUserID(c)
 	roomID := c.Param("id")
 	if !h.isMember(roomID, userID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "not a member"})
+		forbidden(c, "not a member")
 		return
 	}
 
@@ -140,7 +140,7 @@ func (h *RoomsHandler) SendMessage(c *gin.Context) {
 		Model   string `json:"model"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 
@@ -261,13 +261,16 @@ func (h *RoomsHandler) Delete(c *gin.Context) {
 	roomID := c.Param("id")
 	// Only creator can delete
 	var createdBy string
-	h.db.QueryRow("SELECT created_by FROM chat_rooms WHERE id = ?", roomID).Scan(&createdBy)
-	if createdBy == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "room not found"})
+	if err := h.db.QueryRow("SELECT created_by FROM chat_rooms WHERE id = ?", roomID).Scan(&createdBy); err != nil {
+		if err == sql.ErrNoRows {
+			notFound(c, "room not found")
+			return
+		}
+		serverError(c, "database error")
 		return
 	}
 	if createdBy != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only creator can delete"})
+		forbidden(c, "only creator can delete")
 		return
 	}
 	h.db.Exec("DELETE FROM chat_rooms WHERE id = ?", roomID)
@@ -278,7 +281,7 @@ func (h *RoomsHandler) GetMembers(c *gin.Context) {
 	userID := mustUserID(c)
 	roomID := c.Param("id")
 	if !h.isMember(roomID, userID) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "not a member"})
+		forbidden(c, "not a member")
 		return
 	}
 	rows, err := h.db.Query(`
@@ -287,7 +290,7 @@ func (h *RoomsHandler) GetMembers(c *gin.Context) {
 		JOIN users u ON u.id = crm.user_id
 		WHERE crm.room_id = ?`, roomID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	defer rows.Close()

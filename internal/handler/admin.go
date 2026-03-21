@@ -55,7 +55,7 @@ func (h *AdminHandler) GetAuditLog(c *gin.Context) {
 	}
 	entries, total, err := h.audit.List(limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	if entries == nil {
@@ -72,7 +72,7 @@ func (h *AdminHandler) BackupDB(c *gin.Context) {
 
 	dbPath := h.database.Path()
 	if dbPath == "" || dbPath == ":memory:" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "backup not supported for in-memory database"})
+		badRequest(c, "backup not supported for in-memory database")
 		return
 	}
 
@@ -133,7 +133,7 @@ func (h *AdminHandler) ImportUserData(c *gin.Context) {
 		} `json:"conversations"`
 	}
 	if err := c.ShouldBindJSON(&data); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 

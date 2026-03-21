@@ -20,7 +20,7 @@ func (h *PluginHandler) List(c *gin.Context) {
 	userID := mustUserID(c)
 	plugins, err := h.mgr.List(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	if plugins == nil {
@@ -41,7 +41,7 @@ func (h *PluginHandler) Register(c *gin.Context) {
 		Shared      bool              `json:"shared"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	if req.Method == "" {
@@ -52,7 +52,7 @@ func (h *PluginHandler) Register(c *gin.Context) {
 	}
 	p, err := h.mgr.Register(userID, req.Name, req.Description, req.Endpoint, req.Method, req.Headers, req.InputSchema, req.Shared)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	c.JSON(http.StatusCreated, p)
@@ -62,7 +62,7 @@ func (h *PluginHandler) Delete(c *gin.Context) {
 	userID := mustUserID(c)
 	id := c.Param("id")
 	if err := h.mgr.Delete(id, userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	c.Status(http.StatusNoContent)
@@ -73,7 +73,7 @@ func (h *PluginHandler) Test(c *gin.Context) {
 	id := c.Param("id")
 	p, err := h.mgr.GetByID(id, userID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "plugin not found"})
+		notFound(c, "plugin not found")
 		return
 	}
 	var input json.RawMessage

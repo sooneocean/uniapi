@@ -37,7 +37,7 @@ func (h *ConversationHandler) ListConversations(c *gin.Context) {
 	}
 	convs, err := h.convoRepo.ListByUserWithPreview(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	if convs == nil {
@@ -58,16 +58,16 @@ func (h *ConversationHandler) CreateConversation(c *gin.Context) {
 	}
 	var req createConversationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	if len(req.Title) > 500 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "title too long"})
+		badRequest(c, "title too long")
 		return
 	}
 	conv, err := h.convoRepo.Create(userID, req.Title)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	c.JSON(http.StatusCreated, conv)
@@ -82,16 +82,16 @@ func (h *ConversationHandler) GetConversation(c *gin.Context) {
 	id := c.Param("id")
 	conv, err := h.convoRepo.GetByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		notFound(c, "conversation not found")
 		return
 	}
 	if conv.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 	msgs, err := h.convoRepo.GetMessages(id)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	if msgs == nil {
@@ -120,27 +120,27 @@ func (h *ConversationHandler) UpdateConversation(c *gin.Context) {
 	id := c.Param("id")
 	conv, err := h.convoRepo.GetByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		notFound(c, "conversation not found")
 		return
 	}
 	if conv.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 	var req updateConversationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	if len(req.Title) > 500 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "title too long"})
+		badRequest(c, "title too long")
 		return
 	}
 	if err := h.convoRepo.UpdateTitle(id, req.Title); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
 
 // DELETE /api/conversations/:id
@@ -152,18 +152,18 @@ func (h *ConversationHandler) DeleteConversation(c *gin.Context) {
 	id := c.Param("id")
 	conv, err := h.convoRepo.GetByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		notFound(c, "conversation not found")
 		return
 	}
 	if conv.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 	if err := h.convoRepo.Delete(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
 
 // POST /api/conversations/:id/messages
@@ -175,11 +175,11 @@ func (h *ConversationHandler) AddMessage(c *gin.Context) {
 	convoID := c.Param("id")
 	conv, err := h.convoRepo.GetByID(convoID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		notFound(c, "conversation not found")
 		return
 	}
 	if conv.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 	var req struct {
@@ -192,7 +192,7 @@ func (h *ConversationHandler) AddMessage(c *gin.Context) {
 		LatencyMs int     `json:"latency_ms"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	msg := &repo.MessageRecord{
@@ -207,7 +207,7 @@ func (h *ConversationHandler) AddMessage(c *gin.Context) {
 		LatencyMs:      req.LatencyMs,
 	}
 	if err := h.convoRepo.AddMessage(msg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "id": msg.ID})
@@ -224,19 +224,19 @@ func (h *ConversationHandler) DeleteMessageAndAfter(c *gin.Context) {
 
 	conv, err := h.convoRepo.GetByID(convoID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		notFound(c, "conversation not found")
 		return
 	}
 	if conv.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 
 	if err := h.convoRepo.DeleteMessageAndAfter(convoID, msgID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
 
 // GET /api/conversations/:id/export?format=markdown|json
@@ -250,17 +250,17 @@ func (h *ConversationHandler) ExportConversation(c *gin.Context) {
 
 	conv, err := h.convoRepo.GetByID(convoID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		notFound(c, "conversation not found")
 		return
 	}
 	if conv.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 
 	messages, err := h.convoRepo.GetMessages(convoID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	if messages == nil {
@@ -282,7 +282,7 @@ func (h *ConversationHandler) ExportConversation(c *gin.Context) {
 		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s.md", safeTitle))
 		c.Data(http.StatusOK, "text/markdown", []byte(md.String()))
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported format, use markdown or json"})
+		badRequest(c, "unsupported format, use markdown or json")
 	}
 }
 
@@ -295,16 +295,16 @@ func (h *ConversationHandler) ShareConversation(c *gin.Context) {
 	convoID := c.Param("id")
 	conv, err := h.convoRepo.GetByID(convoID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		notFound(c, "conversation not found")
 		return
 	}
 	if conv.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 	token := uuid.New().String()[:12]
 	if err := h.convoRepo.SetShareToken(convoID, token); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"share_url": "/shared/" + token})
@@ -319,18 +319,18 @@ func (h *ConversationHandler) UnshareConversation(c *gin.Context) {
 	convoID := c.Param("id")
 	conv, err := h.convoRepo.GetByID(convoID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		notFound(c, "conversation not found")
 		return
 	}
 	if conv.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 	if err := h.convoRepo.SetShareToken(convoID, ""); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
 
 // GET /api/shared/:token (public — no auth)
@@ -338,7 +338,7 @@ func (h *ConversationHandler) GetSharedConversation(c *gin.Context) {
 	token := c.Param("token")
 	convo, err := h.convoRepo.GetByShareToken(token)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		notFound(c, "not found")
 		return
 	}
 	messages, _ := h.convoRepo.GetMessages(convo.ID)
@@ -352,57 +352,57 @@ func (h *ConversationHandler) GetSharedConversation(c *gin.Context) {
 func (h *ConversationHandler) UpdateConversationFolder(c *gin.Context) {
 	userIDVal, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": "not authenticated"}})
 		return
 	}
 	userID, _ := userIDVal.(string)
 	id := c.Param("id")
 	conv, err := h.convoRepo.GetByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		notFound(c, "conversation not found")
 		return
 	}
 	if conv.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 	var req struct {
 		Folder string `json:"folder"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	if err := h.convoRepo.UpdateFolder(id, req.Folder); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
 
 // PUT /api/conversations/:id/pin
 func (h *ConversationHandler) ToggleConversationPin(c *gin.Context) {
 	userIDVal, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": "not authenticated"}})
 		return
 	}
 	userID, _ := userIDVal.(string)
 	id := c.Param("id")
 	conv, err := h.convoRepo.GetByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		notFound(c, "conversation not found")
 		return
 	}
 	if conv.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 	if err := h.convoRepo.TogglePin(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
 
 // POST /api/conversations/:id/auto-title
@@ -414,16 +414,16 @@ func (h *ConversationHandler) AutoTitle(c *gin.Context) {
 	convoID := c.Param("id")
 	conv, err := h.convoRepo.GetByID(convoID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		notFound(c, "conversation not found")
 		return
 	}
 	if conv.UserID != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		forbidden(c, "forbidden")
 		return
 	}
 	messages, _ := h.convoRepo.GetMessages(convoID)
 	if len(messages) < 2 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "need at least one exchange"})
+		badRequest(c, "need at least one exchange")
 		return
 	}
 

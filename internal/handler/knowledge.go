@@ -23,12 +23,12 @@ func (h *KnowledgeHandler) Upload(c *gin.Context) {
 		Shared  bool   `json:"shared"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	doc, err := h.mgr.Upload(userID, req.Title, req.Content, req.Shared)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	c.JSON(http.StatusCreated, doc)
@@ -38,7 +38,7 @@ func (h *KnowledgeHandler) List(c *gin.Context) {
 	userID := mustUserID(c)
 	docs, err := h.mgr.ListDocs(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	if docs == nil {
@@ -51,7 +51,7 @@ func (h *KnowledgeHandler) Delete(c *gin.Context) {
 	userID := mustUserID(c)
 	id := c.Param("id")
 	if err := h.mgr.DeleteDoc(id, userID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	c.Status(http.StatusNoContent)

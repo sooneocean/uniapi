@@ -46,7 +46,7 @@ func (h *OAuthHandler) Authorize(c *gin.Context) {
 	if shared {
 		role, _ := c.Get("role")
 		if r, ok := role.(string); !ok || r != "admin" {
-			c.JSON(403, gin.H{"error": "admin required for shared binding"})
+			forbidden(c, "admin required for shared binding")
 			return
 		}
 	}
@@ -63,7 +63,7 @@ func (h *OAuthHandler) Authorize(c *gin.Context) {
 
 	url, err := h.manager.AuthorizeURL(providerName, userID, sessionHash, shared)
 	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	c.Redirect(http.StatusFound, url)
@@ -108,14 +108,14 @@ func (h *OAuthHandler) BindSessionToken(c *gin.Context) {
 		Shared bool   `json:"shared"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 
 	if req.Shared {
 		role, _ := c.Get("role")
 		if r, ok := role.(string); !ok || r != "admin" {
-			c.JSON(403, gin.H{"error": "admin required for shared binding"})
+			forbidden(c, "admin required for shared binding")
 			return
 		}
 	}
@@ -125,7 +125,7 @@ func (h *OAuthHandler) BindSessionToken(c *gin.Context) {
 
 	acc, err := h.manager.BindSessionToken(providerName, userID, req.Token, req.Shared)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 
@@ -161,7 +161,7 @@ func (h *OAuthHandler) ListAccounts(c *gin.Context) {
 
 	accounts, err := h.manager.ListAccounts(userID)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 
@@ -197,7 +197,7 @@ func (h *OAuthHandler) UnbindAccount(c *gin.Context) {
 	}
 
 	if err := h.manager.Unbind(accountID, userID, role); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 
@@ -205,7 +205,7 @@ func (h *OAuthHandler) UnbindAccount(c *gin.Context) {
 		h.audit.Log(userID, "", "unbind_account", "account", accountID, "", c.ClientIP())
 	}
 
-	c.JSON(200, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
 
 // Reauth handles POST /api/oauth/accounts/:id/reauth
@@ -217,7 +217,7 @@ func (h *OAuthHandler) Reauth(c *gin.Context) {
 
 	acc, err := h.manager.GetAccount(accountID, userID)
 	if err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 
@@ -229,7 +229,7 @@ func (h *OAuthHandler) Reauth(c *gin.Context) {
 		sessionHash := oauth.HashSession(token)
 		url, err := h.manager.AuthorizeURL(acc.OAuthProvider, userID, sessionHash, acc.OwnerUserID == "")
 		if err != nil {
-			c.JSON(500, gin.H{"error": err.Error()})
+			serverError(c, "operation failed")
 			return
 		}
 		c.JSON(200, gin.H{"action": "oauth", "authorize_url": url})

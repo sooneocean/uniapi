@@ -46,20 +46,6 @@ func NewSettingsHandler(
 	}
 }
 
-func requireAdmin(c *gin.Context) bool {
-	roleVal, exists := c.Get("role")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
-		return false
-	}
-	role, ok := roleVal.(string)
-	if !ok || role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "admin required"})
-		return false
-	}
-	return true
-}
-
 // ─── Provider management ─────────────────────────────────────────────────────
 
 func (h *SettingsHandler) ListProviders(c *gin.Context) {
@@ -68,7 +54,7 @@ func (h *SettingsHandler) ListProviders(c *gin.Context) {
 	}
 	accounts, err := h.accountRepo.ListAll()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	out := make([]gin.H, len(accounts))
@@ -101,11 +87,11 @@ func (h *SettingsHandler) AddProvider(c *gin.Context) {
 	}
 	var req addProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	if len(req.Label) > 100 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "label too long"})
+		badRequest(c, "label too long")
 		return
 	}
 	maxConc := req.MaxConcurrent
@@ -114,7 +100,7 @@ func (h *SettingsHandler) AddProvider(c *gin.Context) {
 	}
 	account, err := h.accountRepo.Create(req.Provider, req.Label, req.APIKey, req.Models, maxConc, false)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 
@@ -147,15 +133,15 @@ func (h *SettingsHandler) DeleteProvider(c *gin.Context) {
 	id := c.Param("id")
 	account, err := h.accountRepo.GetByID(id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "provider not found"})
+		notFound(c, "provider not found")
 		return
 	}
 	if account.ConfigManaged {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete config-managed provider"})
+		badRequest(c, "cannot delete config-managed provider")
 		return
 	}
 	if err := h.accountRepo.Delete(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 
@@ -165,7 +151,7 @@ func (h *SettingsHandler) DeleteProvider(c *gin.Context) {
 		h.audit.Log(userID, "", "delete_provider", "provider", id, "", c.ClientIP())
 	}
 
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
 
 // GET /api/provider-templates
@@ -181,7 +167,7 @@ func (h *SettingsHandler) ListUsers(c *gin.Context) {
 	}
 	users, err := h.userRepo.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	out := make([]gin.H, len(users))
@@ -208,15 +194,15 @@ func (h *SettingsHandler) CreateUser(c *gin.Context) {
 	}
 	var req createUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	if len(req.Username) > 100 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "username too long"})
+		badRequest(c, "username too long")
 		return
 	}
 	if err := validatePassword(req.Password); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	role := req.Role
@@ -225,12 +211,12 @@ func (h *SettingsHandler) CreateUser(c *gin.Context) {
 	}
 	passwordHash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+		serverError(c, "failed to hash password")
 		return
 	}
 	user, err := h.userRepo.Create(req.Username, passwordHash, role)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 
@@ -260,14 +246,14 @@ func (h *SettingsHandler) UpdateUserQuotas(c *gin.Context) {
 		MonthlyCostLimit float64 `json:"monthly_cost_limit"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	if err := h.userRepo.UpdateQuotas(id, req.DailyTokenLimit, req.DailyCostLimit, req.MonthlyCostLimit); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
 
 func (h *SettingsHandler) DeleteUser(c *gin.Context) {
@@ -279,12 +265,12 @@ func (h *SettingsHandler) DeleteUser(c *gin.Context) {
 	// Prevent self-deletion
 	uid, _ := c.Get("user_id")
 	if currentUID, ok := uid.(string); ok && currentUID == id {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete your own account"})
+		badRequest(c, "cannot delete your own account")
 		return
 	}
 
 	if err := h.userRepo.Delete(id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		notFound(c, "user not found")
 		return
 	}
 
@@ -294,7 +280,7 @@ func (h *SettingsHandler) DeleteUser(c *gin.Context) {
 		h.audit.Log(userID, "", "delete_user", "user", id, "", c.ClientIP())
 	}
 
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
 
 // ─── API Key management ───────────────────────────────────────────────────────
@@ -302,12 +288,12 @@ func (h *SettingsHandler) DeleteUser(c *gin.Context) {
 func (h *SettingsHandler) ListAPIKeys(c *gin.Context) {
 	userIDVal, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": "not authenticated"}})
 		return
 	}
 	userID, ok := userIDVal.(string)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		serverError(c, "invalid user context")
 		return
 	}
 	rows, err := h.database.DB.Query(
@@ -315,7 +301,7 @@ func (h *SettingsHandler) ListAPIKeys(c *gin.Context) {
 		userID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	defer rows.Close()
@@ -330,7 +316,7 @@ func (h *SettingsHandler) ListAPIKeys(c *gin.Context) {
 		var k keyItem
 		var expiresAt *time.Time
 		if err := rows.Scan(&k.ID, &k.Label, &k.CreatedAt, &expiresAt); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			serverError(c, "operation failed")
 			return
 		}
 		k.ExpiresAt = expiresAt
@@ -349,22 +335,22 @@ type createAPIKeyRequest struct {
 func (h *SettingsHandler) CreateAPIKey(c *gin.Context) {
 	userIDVal, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": "not authenticated"}})
 		return
 	}
 	userID, ok := userIDVal.(string)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		serverError(c, "invalid user context")
 		return
 	}
 	var req createAPIKeyRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		badRequest(c, err.Error())
 		return
 	}
 	key, err := auth.GenerateAPIKey()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate API key"})
+		serverError(c, "failed to generate API key")
 		return
 	}
 	hash := auth.HashAPIKey(key)
@@ -375,7 +361,7 @@ func (h *SettingsHandler) CreateAPIKey(c *gin.Context) {
 		id, userID, hash, req.Label, now,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 
@@ -389,12 +375,12 @@ func (h *SettingsHandler) CreateAPIKey(c *gin.Context) {
 func (h *SettingsHandler) DeleteAPIKey(c *gin.Context) {
 	userIDVal, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "auth_error", "message": "not authenticated"}})
 		return
 	}
 	userID, ok := userIDVal.(string)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		serverError(c, "invalid user context")
 		return
 	}
 	id := c.Param("id")
@@ -403,13 +389,13 @@ func (h *SettingsHandler) DeleteAPIKey(c *gin.Context) {
 		id, userID,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		serverError(c, "operation failed")
 		return
 	}
 	n, _ := result.RowsAffected()
 	if n == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "api key not found"})
+		notFound(c, "api key not found")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	success(c, gin.H{"ok": true})
 }
