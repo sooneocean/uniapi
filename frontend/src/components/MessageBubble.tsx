@@ -23,7 +23,21 @@ export default function MessageBubble({ message, isLastAssistant, onEdit, onRege
         }`}
       >
         {isUser ? (
-          <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
+          <div>
+            {message.images && message.images.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {message.images.map((src, i) => (
+                  <img
+                    key={i}
+                    src={src}
+                    alt={`attached image ${i + 1}`}
+                    className="max-w-[200px] max-h-[200px] rounded-lg object-cover"
+                  />
+                ))}
+              </div>
+            )}
+            <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
+          </div>
         ) : (
           <div className="text-sm prose prose-invert prose-sm max-w-none">
             <ReactMarkdown

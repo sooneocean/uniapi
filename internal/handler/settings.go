@@ -408,13 +408,13 @@ func (h *SettingsHandler) ListConversations(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
 		return
 	}
-	convs, err := h.convoRepo.ListByUser(userID)
+	convs, err := h.convoRepo.ListByUserWithPreview(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if convs == nil {
-		convs = []repo.Conversation{}
+		convs = []repo.ConversationWithPreview{}
 	}
 	c.JSON(http.StatusOK, convs)
 }

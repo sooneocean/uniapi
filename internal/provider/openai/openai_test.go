@@ -39,8 +39,8 @@ func TestConvertRequest(t *testing.T) {
 	if wireReq.Messages[0].Role != "system" {
 		t.Errorf("expected first message role system, got %s", wireReq.Messages[0].Role)
 	}
-	if wireReq.Messages[0].Content != "You are helpful." {
-		t.Errorf("unexpected content: %s", wireReq.Messages[0].Content)
+	if messageContent(wireReq.Messages[0]) != "You are helpful." {
+		t.Errorf("unexpected content: %v", wireReq.Messages[0].Content)
 	}
 	if wireReq.Messages[1].Role != "user" {
 		t.Errorf("expected second message role user, got %s", wireReq.Messages[1].Role)
@@ -59,7 +59,7 @@ func TestConvertResponse(t *testing.T) {
 		Model: "gpt-4o",
 		Choices: []openaiChoice{
 			{
-				Message:      openaiMessage{Role: "assistant", Content: "Hello there!"},
+				Message:      openaiResponseMessage{Role: "assistant", Content: "Hello there!"},
 				FinishReason: "stop",
 			},
 		},
@@ -97,7 +97,7 @@ func TestChatCompletionIntegration(t *testing.T) {
 		Model: "gpt-4o",
 		Choices: []openaiChoice{
 			{
-				Message:      openaiMessage{Role: "assistant", Content: "Hi from mock!"},
+				Message:      openaiResponseMessage{Role: "assistant", Content: "Hi from mock!"},
 				FinishReason: "stop",
 			},
 		},

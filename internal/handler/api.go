@@ -34,8 +34,8 @@ type chatCompletionRequest struct {
 }
 
 type chatMsg struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"` // string or []ContentBlock
 }
 
 func (h *APIHandler) ChatCompletions(c *gin.Context) {
@@ -44,15 +44,36 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
 		return
 	}
-	for _, m := range req.Messages {
-		if len(m.Content) > 1_000_000 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "message content too large"}})
-			return
-		}
-	}
 	messages := make([]provider.Message, len(req.Messages))
 	for i, m := range req.Messages {
-		messages[i] = provider.Message{Role: m.Role, Content: []provider.ContentBlock{{Type: "text", Text: m.Content}}}
+		switch v := m.Content.(type) {
+		case string:
+			if len(v) > 1_000_000 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "message content too large"}})
+				return
+			}
+			messages[i] = provider.Message{Role: m.Role, Content: []provider.ContentBlock{{Type: "text", Text: v}}}
+		case []interface{}:
+			var blocks []provider.ContentBlock
+			for _, item := range v {
+				if block, ok := item.(map[string]interface{}); ok {
+					cb := provider.ContentBlock{Type: fmt.Sprintf("%v", block["type"])}
+					if t, ok := block["text"]; ok {
+						cb.Text = fmt.Sprintf("%v", t)
+					}
+					if iu, ok := block["image_url"]; ok {
+						if iuMap, ok := iu.(map[string]interface{}); ok {
+							cb.ImageURL = fmt.Sprintf("%v", iuMap["url"])
+						}
+					}
+					blocks = append(blocks, cb)
+				}
+			}
+			messages[i] = provider.Message{Role: m.Role, Content: blocks}
+		default:
+			// Fallback: treat as empty text
+			messages[i] = provider.Message{Role: m.Role, Content: []provider.ContentBlock{{Type: "text", Text: ""}}}
+		}
 	}
 	chatReq := &provider.ChatRequest{
 		Model: req.Model, Messages: messages, MaxTokens: req.MaxTokens,

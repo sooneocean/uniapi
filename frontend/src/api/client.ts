@@ -22,11 +22,36 @@ export async function fetchModels(): Promise<ModelInfo[]> {
   return resp.data.data;
 }
 
+type ApiMessage =
+  | { role: string; content: string }
+  | { role: string; content: Array<{ type: string; text?: string; image_url?: { url: string } }> };
+
+function buildApiMessages(
+  messages: { role: string; content: string }[],
+  images?: string[],
+): ApiMessage[] {
+  if (!images || images.length === 0) return messages;
+  // Attach images to the last user message
+  const result: ApiMessage[] = messages.map((m, idx) => {
+    if (idx === messages.length - 1 && m.role === 'user' && images.length > 0) {
+      const parts: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
+        { type: 'text', text: m.content },
+        ...images.map((img) => ({ type: 'image_url', image_url: { url: img } })),
+      ];
+      return { role: m.role, content: parts };
+    }
+    return m;
+  });
+  return result;
+}
+
 export async function sendMessage(
   model: string,
   messages: { role: string; content: string }[],
+  images?: string[],
 ): Promise<{ content: string; tokensIn: number; tokensOut: number; latencyMs: number }> {
-  const resp = await api.post('/v1/chat/completions', { model, messages });
+  const apiMessages = buildApiMessages(messages, images);
+  const resp = await api.post('/v1/chat/completions', { model, messages: apiMessages });
   const choice = resp.data.choices[0];
   return {
     content: choice.message.content,
@@ -41,7 +66,9 @@ export async function sendMessageStream(
   messages: { role: string; content: string }[],
   onChunk: (text: string) => void,
   onDone: (usage: { tokensIn: number; tokensOut: number; latencyMs: number }) => void,
+  images?: string[],
 ): Promise<void> {
+  const apiMessages = buildApiMessages(messages, images);
   const resp = await fetch('/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -49,7 +76,7 @@ export async function sendMessageStream(
       'X-CSRF-Token': getCSRFToken(),
     },
     credentials: 'include',
-    body: JSON.stringify({ model, messages, stream: true }),
+    body: JSON.stringify({ model, messages: apiMessages, stream: true }),
   });
 
   const reader = resp.body!.getReader();

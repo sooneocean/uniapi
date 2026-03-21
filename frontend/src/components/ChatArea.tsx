@@ -12,6 +12,7 @@ import ModelSelector from './ModelSelector';
 import MessageBubble from './MessageBubble';
 import StatusBar from './StatusBar';
 import SystemPromptSelector from './SystemPromptSelector';
+import { estimateTokens, estimateCost } from '../utils/tokenEstimator';
 
 interface Props {
   conversationId: string | null;
@@ -22,12 +23,14 @@ interface Props {
 export default function ChatArea({ conversationId, onConversationTitleUpdate, onRegisterFocusInput }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  const [pendingImages, setPendingImages] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [loading, setLoading] = useState(false);
   const [lastStats, setLastStats] = useState({ tokensIn: 0, tokensOut: 0, latencyMs: 0 });
   const [systemPrompt, setSystemPrompt] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (onRegisterFocusInput) {
@@ -68,19 +71,33 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  const doSend = async (text: string, history: Message[]) => {
+  // Token estimation
+  const estimatedTokens = (() => {
+    let total = 0;
+    if (systemPrompt.trim()) total += estimateTokens(systemPrompt.trim());
+    for (const m of messages) {
+      total += estimateTokens(m.content);
+    }
+    total += estimateTokens(input);
+    return total;
+  })();
+  const estimatedCost = estimateCost(estimatedTokens, selectedModel);
+
+  const doSend = async (text: string, history: Message[], imgs: string[]) => {
     if (!text || loading || !selectedModel) return;
 
     const userMsg: Message = {
       id: uuidv4(),
       role: 'user',
       content: text,
+      images: imgs.length > 0 ? imgs : undefined,
       createdAt: new Date().toISOString(),
     };
 
     const nextMessages = [...history, userMsg];
     setMessages(nextMessages);
     setInput('');
+    setPendingImages([]);
     setLoading(true);
 
     if (conversationId) {
@@ -128,6 +145,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
           );
           setLastStats(usage);
         },
+        imgs.length > 0 ? imgs : undefined,
       );
 
       if (conversationId) {
@@ -154,7 +172,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
   };
 
   const handleSend = () => {
-    doSend(input.trim(), messages);
+    doSend(input.trim(), messages, pendingImages);
   };
 
   const handleEdit = async (messageId: string, content: string) => {
@@ -192,7 +210,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
       // Re-send with the history up to (not including) the last user message's position
       const historyBefore = messages.slice(0, assistantActualIdx - 1);
       // Don't use doSend because it re-saves the user message to DB; just stream directly
-      await doSend(lastUserMsg.content, historyBefore);
+      await doSend(lastUserMsg.content, historyBefore, []);
     } catch {
       // ignore
     }
@@ -212,6 +230,38 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          setPendingImages((prev) => [...prev, reader.result as string]);
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    for (const file of Array.from(files)) {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          setPendingImages((prev) => [...prev, reader.result as string]);
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+    // Reset file input so the same file can be selected again
+    e.target.value = '';
   };
 
   // Determine last assistant message index
@@ -298,14 +348,62 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
         <SystemPromptSelector value={systemPrompt} onChange={setSystemPrompt} />
       </div>
 
+      {/* Pending image previews */}
+      {pendingImages.length > 0 && (
+        <div className="px-2 md:px-4 pt-2 flex flex-wrap gap-2" style={{ background: 'var(--bg-secondary)' }}>
+          {pendingImages.map((src, i) => (
+            <div key={i} className="relative">
+              <img
+                src={src}
+                alt={`pending image ${i + 1}`}
+                className="w-16 h-16 object-cover rounded-lg border border-gray-600"
+              />
+              <button
+                className="absolute -top-1 -right-1 bg-gray-700 hover:bg-red-600 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs leading-none"
+                onClick={() => setPendingImages((prev) => prev.filter((_, idx) => idx !== i))}
+                title="Remove image"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Input area */}
       <div className="px-2 md:px-4 py-3 border-t border-gray-700" style={{ background: 'var(--bg-secondary)' }}>
+        {/* Token estimate */}
+        {(input || messages.length > 0) && (
+          <div className="text-xs text-gray-500 mb-1">
+            ~{estimatedTokens.toLocaleString()} tokens · ~${estimatedCost < 0.001 ? estimatedCost.toFixed(6) : estimatedCost.toFixed(4)}
+          </div>
+        )}
         <div className="flex items-end gap-2">
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={handleFileInputChange}
+          />
+          {/* Image attach button */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+            className="px-3 py-3 bg-gray-700 text-gray-300 rounded-xl text-sm hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+            title="Attach image"
+          >
+            📎
+          </button>
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
             rows={1}
             disabled={loading}
@@ -319,7 +417,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
           />
           <button
             onClick={handleSend}
-            disabled={loading || !input.trim() || !selectedModel}
+            disabled={loading || (!input.trim() && pendingImages.length === 0) || !selectedModel}
             className="px-4 py-3 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             Send

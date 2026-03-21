@@ -73,6 +73,35 @@ func (r *ConversationRepo) GetByID(id string) (*Conversation, error) {
 	return c, nil
 }
 
+// ConversationWithPreview wraps Conversation with an optional preview snippet.
+type ConversationWithPreview struct {
+	Conversation
+	Preview string `json:"preview"`
+}
+
+// ListByUserWithPreview returns conversations for a user, each with a short preview
+// of the first message (up to 80 chars).
+func (r *ConversationRepo) ListByUserWithPreview(userID string) ([]ConversationWithPreview, error) {
+	rows, err := r.db.DB.Query(`
+		SELECT c.id, c.user_id, c.title, c.created_at, c.updated_at,
+			COALESCE((SELECT SUBSTR(m.content, 1, 80) FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at LIMIT 1), '')
+		FROM conversations c WHERE c.user_id = ? ORDER BY c.updated_at DESC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var convs []ConversationWithPreview
+	for rows.Next() {
+		var c ConversationWithPreview
+		if err := rows.Scan(&c.ID, &c.UserID, &c.Title, &c.CreatedAt, &c.UpdatedAt, &c.Preview); err != nil {
+			return nil, err
+		}
+		convs = append(convs, c)
+	}
+	return convs, rows.Err()
+}
+
 func (r *ConversationRepo) ListByUser(userID string) ([]Conversation, error) {
 	rows, err := r.db.DB.Query(
 		"SELECT id, user_id, title, created_at, updated_at FROM conversations WHERE user_id = ? ORDER BY updated_at DESC",

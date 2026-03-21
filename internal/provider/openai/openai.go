@@ -17,9 +17,22 @@ import (
 const defaultBaseURL = "https://api.openai.com"
 
 // openaiMessage is the wire format for OpenAI chat messages.
+// Content may be a plain string or a slice of content parts (for vision).
 type openaiMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"` // string or []openaiContentPart
+}
+
+// openaiContentPart is a single element in a multi-part message (vision).
+type openaiContentPart struct {
+	Type     string              `json:"type"`
+	Text     string              `json:"text,omitempty"`
+	ImageURL *openaiImageURLPart `json:"image_url,omitempty"`
+}
+
+// openaiImageURLPart holds the URL for an image content part.
+type openaiImageURLPart struct {
+	URL string `json:"url"`
 }
 
 // openaiRequest is the wire format sent to OpenAI.
@@ -31,10 +44,17 @@ type openaiRequest struct {
 	Stream      bool            `json:"stream,omitempty"`
 }
 
+// openaiResponseMessage is the message structure inside an OpenAI response choice.
+// The response content is always a plain string.
+type openaiResponseMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // openaiChoice represents a single choice in the OpenAI response.
 type openaiChoice struct {
-	Message      openaiMessage `json:"message"`
-	FinishReason string        `json:"finish_reason"`
+	Message      openaiResponseMessage `json:"message"`
+	FinishReason string                `json:"finish_reason"`
 }
 
 // openaiUsage holds token counts from OpenAI.
@@ -97,18 +117,44 @@ func (o *OpenAI) Models() []provider.Model {
 	return models
 }
 
+// hasImageBlocks returns true if any content block is an image.
+func hasImageBlocks(blocks []provider.ContentBlock) bool {
+	for _, b := range blocks {
+		if b.Type == "image" || b.ImageURL != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // convertRequest converts an internal ChatRequest to the OpenAI wire format.
 func convertRequest(req *provider.ChatRequest) *openaiRequest {
 	msgs := make([]openaiMessage, 0, len(req.Messages))
 	for _, m := range req.Messages {
-		text := ""
-		for _, block := range m.Content {
-			text += block.Text
+		if hasImageBlocks(m.Content) {
+			// Use multi-part content format for vision messages.
+			parts := make([]openaiContentPart, 0, len(m.Content))
+			for _, block := range m.Content {
+				if block.ImageURL != "" {
+					parts = append(parts, openaiContentPart{
+						Type:     "image_url",
+						ImageURL: &openaiImageURLPart{URL: block.ImageURL},
+					})
+				} else if block.Text != "" {
+					parts = append(parts, openaiContentPart{
+						Type: "text",
+						Text: block.Text,
+					})
+				}
+			}
+			msgs = append(msgs, openaiMessage{Role: m.Role, Content: parts})
+		} else {
+			text := ""
+			for _, block := range m.Content {
+				text += block.Text
+			}
+			msgs = append(msgs, openaiMessage{Role: m.Role, Content: text})
 		}
-		msgs = append(msgs, openaiMessage{
-			Role:    m.Role,
-			Content: text,
-		})
 	}
 	return &openaiRequest{
 		Model:       req.Model,
@@ -137,6 +183,14 @@ func convertResponse(resp *openaiResponse) *provider.ChatResponse {
 		TokensOut:  resp.Usage.CompletionTokens,
 		StopReason: stopReason,
 	}
+}
+
+// messageContent extracts the string content from an openaiMessage (for tests).
+func messageContent(m openaiMessage) string {
+	if s, ok := m.Content.(string); ok {
+		return s
+	}
+	return ""
 }
 
 // ChatCompletion implements provider.Provider.

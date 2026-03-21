@@ -3,8 +3,9 @@ package provider
 import "context"
 
 type ContentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"` // base64 data URL or http URL
 }
 
 type Message struct {

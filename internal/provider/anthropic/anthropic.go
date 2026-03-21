@@ -14,6 +14,28 @@ import (
 	"github.com/sooneocean/uniapi/internal/provider"
 )
 
+// extractBase64Data strips the "data:<media_type>;base64," prefix from a data URL
+// and returns the media type and raw base64 data.
+func extractBase64Data(dataURL string) (mediaType string, data string) {
+	// data:image/png;base64,<data>
+	if !strings.HasPrefix(dataURL, "data:") {
+		return "image/jpeg", dataURL
+	}
+	rest := strings.TrimPrefix(dataURL, "data:")
+	semi := strings.Index(rest, ";")
+	if semi < 0 {
+		return "image/jpeg", dataURL
+	}
+	mediaType = rest[:semi]
+	after := rest[semi+1:]
+	if strings.HasPrefix(after, "base64,") {
+		data = strings.TrimPrefix(after, "base64,")
+	} else {
+		data = after
+	}
+	return mediaType, data
+}
+
 const (
 	defaultBaseURL      = "https://api.anthropic.com"
 	anthropicVersion    = "2023-06-01"
@@ -23,7 +45,17 @@ const (
 // anthropicContentBlock is the wire format for a single content block in a message.
 type anthropicContentBlock struct {
 	Type string `json:"type"`
-	Text string `json:"text"`
+	Text string `json:"text,omitempty"`
+	// Used for image blocks:
+	Source *anthropicImageSource `json:"source,omitempty"`
+}
+
+// anthropicImageSource describes an image in Anthropic's wire format.
+type anthropicImageSource struct {
+	Type      string `json:"type"`       // "base64" or "url"
+	MediaType string `json:"media_type"` // e.g. "image/png"
+	Data      string `json:"data,omitempty"`
+	URL       string `json:"url,omitempty"`
 }
 
 // anthropicMessage is the wire format for an Anthropic chat message.
@@ -113,10 +145,32 @@ func convertRequest(req *provider.ChatRequest) *anthropicRequest {
 	for _, m := range req.Messages {
 		blocks := make([]anthropicContentBlock, 0, len(m.Content))
 		for _, block := range m.Content {
-			blocks = append(blocks, anthropicContentBlock{
-				Type: block.Type,
-				Text: block.Text,
-			})
+			if block.ImageURL != "" {
+				if strings.HasPrefix(block.ImageURL, "data:") {
+					mediaType, b64data := extractBase64Data(block.ImageURL)
+					blocks = append(blocks, anthropicContentBlock{
+						Type: "image",
+						Source: &anthropicImageSource{
+							Type:      "base64",
+							MediaType: mediaType,
+							Data:      b64data,
+						},
+					})
+				} else {
+					blocks = append(blocks, anthropicContentBlock{
+						Type: "image",
+						Source: &anthropicImageSource{
+							Type: "url",
+							URL:  block.ImageURL,
+						},
+					})
+				}
+			} else {
+				blocks = append(blocks, anthropicContentBlock{
+					Type: block.Type,
+					Text: block.Text,
+				})
+			}
 		}
 		msgs = append(msgs, anthropicMessage{
 			Role:    m.Role,

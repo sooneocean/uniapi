@@ -101,14 +101,17 @@ export default function Sidebar({ conversations, activeConversationId, onNewChat
                 <button
                   key={conv.id}
                   onClick={() => onSelectConversation(conv.id)}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm truncate transition-colors mb-1 ${
+                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors mb-1 ${
                     activeConversationId === conv.id
                       ? 'bg-gray-600 text-white'
                       : 'text-gray-300 hover:bg-gray-700 hover:text-white'
                   }`}
                   title={conv.title}
                 >
-                  {conv.title}
+                  <div className="truncate">{conv.title}</div>
+                  {conv.preview && (
+                    <div className="text-xs text-gray-500 truncate mt-0.5">{conv.preview}</div>
+                  )}
                 </button>
               ))}
             </div>
