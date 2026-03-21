@@ -6,3 +6,4 @@ bin/
 secret
 node_modules/
 dist/
+uniapi
