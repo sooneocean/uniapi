@@ -202,6 +202,28 @@ export async function getAuditLog(limit = 50, offset = 0) {
   return (await api.get(`/api/audit-log?limit=${limit}&offset=${offset}`)).data;
 }
 
+// Auto-title
+export async function autoTitle(conversationId: string): Promise<string> {
+  const resp = await api.post(`/api/conversations/${conversationId}/auto-title`);
+  return resp.data.title;
+}
+
+// Admin dashboard
+export async function getDashboard() {
+  return (await api.get('/api/dashboard')).data;
+}
+
+// Database backup
+export async function downloadBackup() {
+  const resp = await api.get('/api/backup', { responseType: 'blob' });
+  const url = URL.createObjectURL(resp.data);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `uniapi-backup-${new Date().toISOString().slice(0, 10)}.db`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // OAuth / Binding
 export async function getOAuthProviders() {
   return (await api.get('/api/oauth/providers')).data;

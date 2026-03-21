@@ -14,14 +14,18 @@ import (
 var migrationsFS embed.FS
 
 type Database struct {
-	DB *sql.DB
+	DB   *sql.DB
+	path string
 }
 
 func Open(dsn string) (*Database, error) {
+	rawPath := dsn
 	if dsn == "" {
 		dsn = "file:uniapi.db?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on"
+		rawPath = "uniapi.db"
 	} else if dsn == ":memory:" {
 		dsn = "file::memory:?_foreign_keys=on"
+		rawPath = ":memory:"
 	} else if !strings.Contains(dsn, "?") {
 		dsn = fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on", dsn)
 	}
@@ -35,7 +39,7 @@ func Open(dsn string) (*Database, error) {
 	sqlDB.SetMaxOpenConns(10)
 	sqlDB.SetMaxIdleConns(5)
 
-	database := &Database{DB: sqlDB}
+	database := &Database{DB: sqlDB, path: rawPath}
 	if err := database.migrate(); err != nil {
 		sqlDB.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
@@ -43,6 +47,8 @@ func Open(dsn string) (*Database, error) {
 
 	return database, nil
 }
+
+func (d *Database) Path() string { return d.path }
 
 func (d *Database) migrate() error {
 	// Ensure schema_version table exists

@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/sooneocean/uniapi/internal/db"
 	"github.com/sooneocean/uniapi/internal/provider"
 	"github.com/sooneocean/uniapi/internal/repo"
+	"github.com/sooneocean/uniapi/internal/router"
 	"github.com/sooneocean/uniapi/internal/usage"
 )
 
@@ -26,6 +28,7 @@ type SettingsHandler struct {
 	database         *db.Database
 	audit            *audit.Logger
 	registerAccount  func(acc *repo.Account)
+	router           *router.Router
 }
 
 func NewSettingsHandler(
@@ -36,6 +39,7 @@ func NewSettingsHandler(
 	database *db.Database,
 	auditLogger *audit.Logger,
 	registerAccount func(acc *repo.Account),
+	rtr *router.Router,
 ) *SettingsHandler {
 	return &SettingsHandler{
 		accountRepo:      accountRepo,
@@ -46,6 +50,7 @@ func NewSettingsHandler(
 		database:         database,
 		audit:            auditLogger,
 		registerAccount:  registerAccount,
+		router:           rtr,
 	}
 }
 
@@ -906,4 +911,167 @@ func (h *SettingsHandler) DeleteSystemPrompt(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// ─── Auto-title ───────────────────────────────────────────────────────────────
+
+// POST /api/conversations/:id/auto-title
+func (h *SettingsHandler) AutoTitle(c *gin.Context) {
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated"})
+		return
+	}
+	userID, ok := userIDVal.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid user context"})
+		return
+	}
+	convoID := c.Param("id")
+	conv, err := h.convoRepo.GetByID(convoID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
+		return
+	}
+	if conv.UserID != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+	messages, _ := h.convoRepo.GetMessages(convoID)
+	if len(messages) < 2 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "need at least one exchange"})
+		return
+	}
+
+	summary := messages[0].Content
+	if len(summary) > 200 {
+		summary = summary[:200]
+	}
+
+	titleReq := &provider.ChatRequest{
+		Model: "",
+		Messages: []provider.Message{
+			{Role: "user", Content: []provider.ContentBlock{{Type: "text", Text: "Generate a short title (max 6 words, no quotes) for a conversation that starts with: " + summary}}},
+		},
+		MaxTokens: 20,
+	}
+
+	var title string
+	if h.router != nil {
+		resp, routeErr := h.router.Route(c.Request.Context(), titleReq, userID)
+		if routeErr == nil && len(resp.Content) > 0 {
+			title = resp.Content[0].Text
+			if len(title) > 100 {
+				title = title[:100]
+			}
+		}
+	}
+
+	if title == "" {
+		title = summary
+		if len(title) > 50 {
+			title = title[:50] + "..."
+		}
+	}
+
+	h.convoRepo.UpdateTitle(convoID, title) //nolint:errcheck
+	c.JSON(http.StatusOK, gin.H{"title": title})
+}
+
+// ─── Admin dashboard ──────────────────────────────────────────────────────────
+
+// GET /api/dashboard
+func (h *SettingsHandler) Dashboard(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
+	var totalUsers int
+	h.database.DB.QueryRow("SELECT COUNT(*) FROM users").Scan(&totalUsers) //nolint:errcheck
+
+	var totalConversations int
+	h.database.DB.QueryRow("SELECT COUNT(*) FROM conversations").Scan(&totalConversations) //nolint:errcheck
+
+	var totalMessages int
+	h.database.DB.QueryRow("SELECT COUNT(*) FROM messages").Scan(&totalMessages) //nolint:errcheck
+
+	var totalAccounts int
+	h.database.DB.QueryRow("SELECT COUNT(*) FROM accounts WHERE enabled = 1").Scan(&totalAccounts) //nolint:errcheck
+
+	today := time.Now().Format("2006-01-02")
+	var todayRequests int
+	var todayCost float64
+	var todayTokensIn, todayTokensOut int
+	h.database.DB.QueryRow( //nolint:errcheck
+		"SELECT COALESCE(SUM(request_count),0), COALESCE(SUM(cost),0), COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0) FROM usage_daily WHERE date = ?",
+		today,
+	).Scan(&todayRequests, &todayCost, &todayTokensIn, &todayTokensOut)
+
+	rows, _ := h.database.DB.Query(
+		"SELECT model, SUM(request_count) as reqs, SUM(cost) as cost FROM usage_daily WHERE date = ? GROUP BY model ORDER BY reqs DESC LIMIT 5",
+		today,
+	)
+	var topModels []gin.H
+	if rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var model string
+			var reqs int
+			var cost float64
+			rows.Scan(&model, &reqs, &cost) //nolint:errcheck
+			topModels = append(topModels, gin.H{"model": model, "requests": reqs, "cost": cost})
+		}
+	}
+	if topModels == nil {
+		topModels = []gin.H{}
+	}
+
+	var recentAudit []audit.Entry
+	if h.audit != nil {
+		recentAudit, _, _ = h.audit.List(10, 0)
+	}
+	if recentAudit == nil {
+		recentAudit = []audit.Entry{}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"users":            totalUsers,
+		"conversations":    totalConversations,
+		"messages":         totalMessages,
+		"active_providers": totalAccounts,
+		"today": gin.H{
+			"requests":   todayRequests,
+			"cost":       todayCost,
+			"tokens_in":  todayTokensIn,
+			"tokens_out": todayTokensOut,
+		},
+		"top_models":    topModels,
+		"recent_audit":  recentAudit,
+	})
+}
+
+// ─── Database backup ──────────────────────────────────────────────────────────
+
+// GET /api/backup
+func (h *SettingsHandler) BackupDB(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
+	dbPath := h.database.Path()
+	if dbPath == "" || dbPath == ":memory:" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "backup not supported for in-memory database"})
+		return
+	}
+
+	backupPath := dbPath + ".backup"
+	_, err := h.database.DB.Exec(fmt.Sprintf("VACUUM INTO '%s'", backupPath))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "backup failed: " + err.Error()})
+		return
+	}
+	defer os.Remove(backupPath)
+
+	c.Header("Content-Disposition", "attachment; filename=uniapi-backup.db")
+	c.File(backupPath)
 }

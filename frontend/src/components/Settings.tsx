@@ -4,8 +4,9 @@ import ProviderSettings from './ProviderSettings';
 import UserSettings from './UserSettings';
 import UsageDashboard from './UsageDashboard';
 import APIKeySettings from './APIKeySettings';
+import AdminDashboard from './AdminDashboard';
 
-type Tab = 'providers' | 'users' | 'usage' | 'apikeys';
+type Tab = 'dashboard' | 'providers' | 'users' | 'usage' | 'apikeys';
 
 interface SettingsProps {
   onClose: () => void;
@@ -14,9 +15,10 @@ interface SettingsProps {
 
 export default function Settings({ onClose, userRole }: SettingsProps) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<Tab>('providers');
+  const [activeTab, setActiveTab] = useState<Tab>(userRole === 'admin' ? 'dashboard' : 'providers');
 
   const tabs: { id: Tab; label: string; adminOnly?: boolean }[] = [
+    { id: 'dashboard', label: 'Dashboard', adminOnly: true },
     { id: 'providers', label: t('settings.providers') },
     { id: 'users', label: t('settings.users'), adminOnly: true },
     { id: 'usage', label: t('settings.usage') },
@@ -59,6 +61,7 @@ export default function Settings({ onClose, userRole }: SettingsProps) {
 
         {/* Tab content */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
+          {activeTab === 'dashboard' && userRole === 'admin' && <AdminDashboard />}
           {activeTab === 'providers' && <ProviderSettings />}
           {activeTab === 'users' && userRole === 'admin' && <UserSettings />}
           {activeTab === 'usage' && <UsageDashboard />}

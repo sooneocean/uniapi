@@ -256,7 +256,7 @@ func main() {
 	apiAuth.GET("/me", authHandler.Me)
 
 	// Settings handler
-	settingsHandler := handler.NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database, auditLogger, registerAccount)
+	settingsHandler := handler.NewSettingsHandler(accountRepo, userRepo, convoRepo, recorder, database, auditLogger, registerAccount, rtr)
 
 	// Provider management (admin only)
 	apiAuth.GET("/providers", settingsHandler.ListProviders)
@@ -283,6 +283,7 @@ func main() {
 	apiAuth.POST("/conversations/:id/messages", settingsHandler.AddMessage)
 	apiAuth.DELETE("/conversations/:id/messages/:msgId", settingsHandler.DeleteMessageAndAfter)
 	apiAuth.GET("/conversations/:id/export", settingsHandler.ExportConversation)
+	apiAuth.POST("/conversations/:id/auto-title", settingsHandler.AutoTitle)
 
 	// System prompts
 	apiAuth.GET("/system-prompts", settingsHandler.ListSystemPrompts)
@@ -352,6 +353,12 @@ func main() {
 
 	// Audit log (admin only)
 	apiAuth.GET("/audit-log", settingsHandler.GetAuditLog)
+
+	// Admin dashboard
+	apiAuth.GET("/dashboard", settingsHandler.Dashboard)
+
+	// Database backup (admin only)
+	apiAuth.GET("/backup", settingsHandler.BackupDB)
 
 	web.RegisterFrontend(engine)
 

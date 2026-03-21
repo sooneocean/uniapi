@@ -8,6 +8,7 @@ import {
   saveMessage,
   deleteMessageAndAfter,
   exportConversation,
+  autoTitle,
 } from '../api/client';
 import ModelSelector from './ModelSelector';
 import MessageBubble from './MessageBubble';
@@ -24,6 +25,7 @@ interface Props {
 export default function ChatArea({ conversationId, onConversationTitleUpdate, onRegisterFocusInput }: Props) {
   const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [conversationTitle, setConversationTitle] = useState('');
   const [input, setInput] = useState('');
   const [pendingImages, setPendingImages] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
@@ -44,6 +46,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
   useEffect(() => {
     if (!conversationId) {
       setMessages([]);
+      setConversationTitle('');
       return;
     }
     getConversation(conversationId)
@@ -60,6 +63,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
           createdAt: m.created_at,
         }));
         setMessages(msgs);
+        setConversationTitle(conv.title ?? '');
         if (onConversationTitleUpdate && conv.title) {
           onConversationTitleUpdate(conversationId, conv.title);
         }
@@ -159,6 +163,16 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
           tokens_out: finalUsage.tokensOut,
           latency_ms: finalUsage.latencyMs,
         }).catch(() => {});
+
+        // Auto-title after first exchange when title is still default
+        if ((conversationTitle === 'New Chat' || conversationTitle === '') && nextMessages.length === 1) {
+          autoTitle(conversationId).then((title) => {
+            setConversationTitle(title);
+            if (onConversationTitleUpdate) {
+              onConversationTitleUpdate(conversationId, title);
+            }
+          }).catch(() => {});
+        }
       }
     } catch {
       setMessages((prev) =>
