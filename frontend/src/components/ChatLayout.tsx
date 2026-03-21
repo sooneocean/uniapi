@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Conversation } from '../types';
 import Sidebar from './Sidebar';
 import ChatArea from './ChatArea';
 import Settings from './Settings';
 import ThemeToggle from './ThemeToggle';
+import ShortcutHelp from './ShortcutHelp';
 import { getMe, logout, getConversations, createConversation } from '../api/client';
 import { useTheme } from '../hooks/useTheme';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 interface Props {
   onShowAccounts?: () => void;
@@ -15,9 +17,16 @@ export default function ChatLayout({ onShowAccounts }: Props) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const [userRole, setUserRole] = useState<string>('member');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
+
+  const focusSearchFnRef = useRef<(() => void) | null>(null);
+  const focusInputFnRef = useRef<(() => void) | null>(null);
+
+  const focusSearch = useCallback(() => focusSearchFnRef.current?.(), []);
+  const focusInput = useCallback(() => focusInputFnRef.current?.(), []);
 
   useEffect(() => {
     getMe().then((me) => setUserRole(me.role)).catch(() => {});
@@ -59,6 +68,15 @@ export default function ChatLayout({ onShowAccounts }: Props) {
     }
   };
 
+  useKeyboardShortcuts([
+    { key: 'k', ctrl: true, action: focusSearch, description: 'Search' },
+    { key: 'n', ctrl: true, action: () => handleNewChat(), description: 'New chat' },
+    { key: ',', ctrl: true, action: () => setShowSettings(true), description: 'Settings' },
+    { key: '/', ctrl: true, action: focusInput, description: 'Focus input' },
+    { key: '?', ctrl: true, shift: true, action: () => setShowShortcuts(true), description: 'Help' },
+    { key: 'Escape', action: () => { setShowSettings(false); setShowShortcuts(false); }, description: 'Close' },
+  ]);
+
   return (
     <div className="flex h-screen w-screen overflow-hidden" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
       {/* Mobile overlay */}
@@ -80,6 +98,7 @@ export default function ChatLayout({ onShowAccounts }: Props) {
           activeConversationId={activeConversationId}
           onNewChat={handleNewChat}
           onSelectConversation={handleSelectConversation}
+          onRegisterFocusSearch={(fn) => { focusSearchFnRef.current = fn; }}
         />
       </div>
 
@@ -130,12 +149,17 @@ export default function ChatLayout({ onShowAccounts }: Props) {
           <ChatArea
             conversationId={activeConversationId}
             onConversationTitleUpdate={handleConversationTitleUpdate}
+            onRegisterFocusInput={(fn) => { focusInputFnRef.current = fn; }}
           />
         </div>
       </div>
 
       {showSettings && (
         <Settings onClose={() => setShowSettings(false)} userRole={userRole} />
+      )}
+
+      {showShortcuts && (
+        <ShortcutHelp onClose={() => setShowShortcuts(false)} />
       )}
     </div>
   );

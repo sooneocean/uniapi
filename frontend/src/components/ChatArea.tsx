@@ -16,9 +16,10 @@ import SystemPromptSelector from './SystemPromptSelector';
 interface Props {
   conversationId: string | null;
   onConversationTitleUpdate?: (id: string, title: string) => void;
+  onRegisterFocusInput?: (fn: () => void) => void;
 }
 
-export default function ChatArea({ conversationId, onConversationTitleUpdate }: Props) {
+export default function ChatArea({ conversationId, onConversationTitleUpdate, onRegisterFocusInput }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
@@ -26,6 +27,13 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate }: 
   const [lastStats, setLastStats] = useState({ tokensIn: 0, tokensOut: 0, latencyMs: 0 });
   const [systemPrompt, setSystemPrompt] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (onRegisterFocusInput) {
+      onRegisterFocusInput(() => inputRef.current?.focus());
+    }
+  }, [onRegisterFocusInput]);
 
   // Load messages when conversation changes
   useEffect(() => {
@@ -294,6 +302,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate }: 
       <div className="px-2 md:px-4 py-3 border-t border-gray-700" style={{ background: 'var(--bg-secondary)' }}>
         <div className="flex items-end gap-2">
           <textarea
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}

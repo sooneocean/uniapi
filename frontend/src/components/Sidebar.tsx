@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { Conversation } from '../types';
 
 interface Props {
@@ -6,6 +6,7 @@ interface Props {
   activeConversationId: string | null;
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
+  onRegisterFocusSearch?: (fn: () => void) => void;
 }
 
 function groupByDate(conversations: Conversation[]): Record<string, Conversation[]> {
@@ -37,8 +38,15 @@ function groupByDate(conversations: Conversation[]): Record<string, Conversation
   return groups;
 }
 
-export default function Sidebar({ conversations, activeConversationId, onNewChat, onSelectConversation }: Props) {
+export default function Sidebar({ conversations, activeConversationId, onNewChat, onSelectConversation, onRegisterFocusSearch }: Props) {
   const [search, setSearch] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (onRegisterFocusSearch) {
+      onRegisterFocusSearch(() => searchRef.current?.focus());
+    }
+  }, [onRegisterFocusSearch]);
 
   const filtered = search.trim()
     ? conversations.filter((c) => c.title.toLowerCase().includes(search.toLowerCase()))
@@ -59,6 +67,7 @@ export default function Sidebar({ conversations, activeConversationId, onNewChat
       {/* Search */}
       <div className="px-3 pt-3">
         <input
+          ref={searchRef}
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
