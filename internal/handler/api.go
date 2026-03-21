@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,15 +15,23 @@ import (
 	"github.com/sooneocean/uniapi/internal/provider"
 	"github.com/sooneocean/uniapi/internal/router"
 	"github.com/sooneocean/uniapi/internal/usage"
+	"github.com/sooneocean/uniapi/internal/webhook"
 )
 
 type APIHandler struct {
-	router   *router.Router
-	recorder *usage.Recorder
+	router     *router.Router
+	recorder   *usage.Recorder
+	webhookMgr *webhook.Manager
+	respCache  *ResponseCache
+	db         *sql.DB
 }
 
 func NewAPIHandler(r *router.Router, rec *usage.Recorder) *APIHandler {
 	return &APIHandler{router: r, recorder: rec}
+}
+
+func NewAPIHandlerFull(r *router.Router, rec *usage.Recorder, webhookMgr *webhook.Manager, respCache *ResponseCache, db *sql.DB) *APIHandler {
+	return &APIHandler{router: r, recorder: rec, webhookMgr: webhookMgr, respCache: respCache, db: db}
 }
 
 type chatCompletionRequest struct {
@@ -76,9 +85,28 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 			messages[i] = provider.Message{Role: m.Role, Content: []provider.ContentBlock{{Type: "text", Text: ""}}}
 		}
 	}
+	userID := ""
+	if uid, exists := c.Get("user_id"); exists {
+		if u, ok := uid.(string); ok {
+			userID = u
+		}
+	}
+
 	chatReq := &provider.ChatRequest{
 		Model: req.Model, Messages: messages, MaxTokens: req.MaxTokens,
 		Temperature: req.Temperature, Stream: req.Stream, Provider: req.Provider,
+	}
+
+	// Resolve model alias
+	if h.db != nil {
+		var resolvedModel string
+		err := h.db.QueryRow(
+			"SELECT model_id FROM model_aliases WHERE alias = ? AND (user_id IS NULL OR user_id = ?) ORDER BY user_id DESC LIMIT 1",
+			chatReq.Model, userID,
+		).Scan(&resolvedModel)
+		if err == nil {
+			chatReq.Model = resolvedModel
+		}
 	}
 
 	if req.Stream {
@@ -86,23 +114,48 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
-	userID := ""
-	if uid, exists := c.Get("user_id"); exists {
-		if u, ok := uid.(string); ok {
-			userID = u
+	// Check response cache (non-streaming only)
+	if h.respCache != nil {
+		cacheKey := h.respCache.Key(chatReq.Model, chatReq.Messages)
+		if cached, ok := h.respCache.Get(cacheKey); ok {
+			c.JSON(http.StatusOK, gin.H{
+				"id": "chatcmpl-" + uuid.New().String()[:8], "object": "chat.completion",
+				"created": time.Now().Unix(), "model": cached.Model,
+				"choices": []gin.H{{"index": 0, "message": gin.H{"role": "assistant", "content": cached.Content}, "finish_reason": "stop"}},
+				"usage": gin.H{"prompt_tokens": cached.TokensIn, "completion_tokens": cached.TokensOut, "total_tokens": cached.TokensIn + cached.TokensOut},
+				"x_uniapi": gin.H{"cached": true},
+			})
+			return
 		}
 	}
+
 	start := time.Now()
 	resp, err := h.router.Route(c.Request.Context(), chatReq, userID)
 	latency := time.Since(start)
 	if err != nil {
 		metrics.ProviderRequestsTotal.WithLabelValues(req.Model, req.Model, "error").Inc()
+		if h.webhookMgr != nil {
+			h.webhookMgr.Fire("provider_error", map[string]interface{}{
+				"model": req.Model, "error": err.Error(), "user_id": userID,
+			})
+		}
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "api_error", "message": err.Error()}})
 		return
 	}
 	content := ""
 	if len(resp.Content) > 0 {
 		content = resp.Content[0].Text
+	}
+
+	// Store in response cache
+	if h.respCache != nil {
+		cacheKey := h.respCache.Key(chatReq.Model, chatReq.Messages)
+		h.respCache.Set(cacheKey, &CachedResponse{
+			Content:   content,
+			Model:     resp.Model,
+			TokensIn:  resp.TokensIn,
+			TokensOut: resp.TokensOut,
+		})
 	}
 
 	if h.recorder != nil {

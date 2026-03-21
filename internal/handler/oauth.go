@@ -10,6 +10,7 @@ import (
 	"github.com/sooneocean/uniapi/internal/oauth"
 	"github.com/sooneocean/uniapi/internal/repo"
 	"github.com/sooneocean/uniapi/internal/router"
+	"github.com/sooneocean/uniapi/internal/webhook"
 )
 
 // OAuthHandler handles OAuth and session token binding endpoints.
@@ -18,11 +19,16 @@ type OAuthHandler struct {
 	router          *router.Router
 	registerAccount func(acc *repo.Account)
 	audit           *audit.Logger
+	webhookMgr      *webhook.Manager
 }
 
 // NewOAuthHandler creates a new OAuthHandler.
 func NewOAuthHandler(mgr *oauth.Manager, rtr *router.Router, registerFn func(acc *repo.Account), auditLogger *audit.Logger) *OAuthHandler {
 	return &OAuthHandler{manager: mgr, router: rtr, registerAccount: registerFn, audit: auditLogger}
+}
+
+func (h *OAuthHandler) SetWebhookManager(mgr *webhook.Manager) {
+	h.webhookMgr = mgr
 }
 
 // ListProviders handles GET /api/oauth/providers
@@ -130,6 +136,14 @@ func (h *OAuthHandler) BindSessionToken(c *gin.Context) {
 
 	if h.audit != nil {
 		h.audit.Log(userID, "", "bind_account", "account", acc.ID, providerName, c.ClientIP())
+	}
+
+	if h.webhookMgr != nil {
+		h.webhookMgr.Fire("account_bound", map[string]interface{}{
+			"user_id":    userID,
+			"account_id": acc.ID,
+			"provider":   providerName,
+		})
 	}
 
 	c.JSON(200, gin.H{"ok": true, "account": gin.H{

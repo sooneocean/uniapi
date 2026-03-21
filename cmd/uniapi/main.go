@@ -32,6 +32,7 @@ import (
 	"github.com/sooneocean/uniapi/internal/router"
 	"github.com/sooneocean/uniapi/internal/usage"
 	"github.com/sooneocean/uniapi/internal/web"
+	"github.com/sooneocean/uniapi/internal/webhook"
 )
 
 func main() {
@@ -195,6 +196,13 @@ func main() {
 		}
 	}
 
+	// Webhook manager
+	webhookCfgs := make([]webhook.WebhookConfig, len(cfg.Webhooks))
+	for i, wh := range cfg.Webhooks {
+		webhookCfgs[i] = webhook.WebhookConfig{URL: wh.URL, Events: wh.Events}
+	}
+	webhookMgr := webhook.NewManager(webhookCfgs)
+
 	// Auth
 	jwtKey, err := crypto.DeriveKeyWithInfo(cfg.Security.Secret, "uniapi-jwt-signing")
 	if err != nil {
@@ -241,8 +249,16 @@ func main() {
 	engine.Use(handler.CSRFMiddleware())
 	engine.Use(handler.MetricsMiddleware())
 
+	// Response cache
+	cacheTTL := cfg.ResponseCache.TTL
+	if cacheTTL == 0 {
+		cacheTTL = 300
+	}
+	respCache := handler.NewResponseCache(memCache, time.Duration(cacheTTL)*time.Second, cfg.ResponseCache.Enabled)
+
 	// Auth routes
 	authHandler := handler.NewAuthHandler(userRepo, jwtMgr, database, auditLogger)
+	authHandler.SetWebhookManager(webhookMgr)
 	loginLimiter := handler.RateLimitMiddleware(memCache, 10, 1*time.Minute) // 10 attempts per minute
 	api := engine.Group("/api")
 	api.GET("/status", authHandler.Status)
@@ -302,6 +318,7 @@ func main() {
 
 	// OAuth routes
 	oauthHandler := handler.NewOAuthHandler(oauthMgr, rtr, registerAccount, auditLogger)
+	oauthHandler.SetWebhookManager(webhookMgr)
 	oauthGroup := engine.Group("/api/oauth")
 	oauthGroup.GET("/callback/:provider", oauthHandler.Callback) // NO auth — uses state token
 
@@ -317,8 +334,14 @@ func main() {
 	bindGroup.GET("/authorize", oauthHandler.Authorize)
 	bindGroup.POST("/session-token", oauthHandler.BindSessionToken)
 
+	// Model alias handler
+	modelAliasHandler := handler.NewModelAliasHandler(database.DB)
+	apiAuth.GET("/model-aliases", modelAliasHandler.ListModelAliases)
+	apiAuth.POST("/model-aliases", modelAliasHandler.CreateModelAlias)
+	apiAuth.DELETE("/model-aliases/:alias", modelAliasHandler.DeleteModelAlias)
+
 	// API routes
-	apiHandler := handler.NewAPIHandler(rtr, recorder)
+	apiHandler := handler.NewAPIHandlerFull(rtr, recorder, webhookMgr, respCache, database.DB)
 	v1 := engine.Group("/v1")
 	v1.Use(handler.APIKeyAuthMiddleware(database.DB, jwtMgr))
 	apiLimiter := handler.RateLimitMiddleware(memCache, 60, 1*time.Minute) // 60 req/min per IP

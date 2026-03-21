@@ -286,3 +286,8 @@ export async function unbindAccount(id: string) {
 export async function reauthAccount(id: string) {
   return (await api.post(`/api/oauth/accounts/${id}/reauth`)).data;
 }
+
+// Model Aliases
+export async function getModelAliases() { return (await api.get('/api/model-aliases')).data; }
+export async function createModelAlias(alias: string, modelId: string) { return (await api.post('/api/model-aliases', { alias, model_id: modelId })).data; }
+export async function deleteModelAlias(alias: string) { await api.delete(`/api/model-aliases/${alias}`); }

@@ -9,6 +9,7 @@ import (
 	"github.com/sooneocean/uniapi/internal/auth"
 	"github.com/sooneocean/uniapi/internal/db"
 	"github.com/sooneocean/uniapi/internal/repo"
+	"github.com/sooneocean/uniapi/internal/webhook"
 )
 
 func validatePassword(password string) error {
@@ -19,14 +20,19 @@ func validatePassword(password string) error {
 }
 
 type AuthHandler struct {
-	userRepo *repo.UserRepo
-	jwtMgr   *auth.JWTManager
-	database *db.Database
-	audit    *audit.Logger
+	userRepo   *repo.UserRepo
+	jwtMgr     *auth.JWTManager
+	database   *db.Database
+	audit      *audit.Logger
+	webhookMgr *webhook.Manager
 }
 
 func NewAuthHandler(userRepo *repo.UserRepo, jwtMgr *auth.JWTManager, database *db.Database, auditLogger *audit.Logger) *AuthHandler {
 	return &AuthHandler{userRepo: userRepo, jwtMgr: jwtMgr, database: database, audit: auditLogger}
+}
+
+func (h *AuthHandler) SetWebhookManager(mgr *webhook.Manager) {
+	h.webhookMgr = mgr
 }
 
 func (h *AuthHandler) Status(c *gin.Context) {
@@ -134,6 +140,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	if h.audit != nil {
 		h.audit.Log(user.ID, user.Username, "login", "user", user.ID, "", c.ClientIP())
+	}
+
+	if h.webhookMgr != nil {
+		h.webhookMgr.Fire("user_login", map[string]interface{}{
+			"user_id":  user.ID,
+			"username": user.Username,
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{

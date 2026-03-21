@@ -52,15 +52,27 @@ type OAuthConfigs struct {
 	Claude  *OAuthProviderConfig `mapstructure:"claude"`
 }
 
+type WebhookConfig struct {
+	URL    string   `mapstructure:"url"`
+	Events []string `mapstructure:"events"` // "provider_error", "quota_warning", "user_login", "account_bound"
+}
+
+type CacheConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+	TTL     int  `mapstructure:"ttl_seconds"` // default 300 (5 min)
+}
+
 type Config struct {
-	Server    ServerConfig     `mapstructure:"server"`
-	Security  SecurityConfig   `mapstructure:"security"`
-	Routing   RoutingConfig    `mapstructure:"routing"`
-	Storage   StorageConfig    `mapstructure:"storage"`
-	Providers []ProviderConfig `mapstructure:"providers"`
-	OAuth     OAuthConfigs     `mapstructure:"oauth"`
-	LogLevel  string           `mapstructure:"log_level"`
-	DataDir   string           `mapstructure:"data_dir"`
+	Server        ServerConfig     `mapstructure:"server"`
+	Security      SecurityConfig   `mapstructure:"security"`
+	Routing       RoutingConfig    `mapstructure:"routing"`
+	Storage       StorageConfig    `mapstructure:"storage"`
+	Providers     []ProviderConfig `mapstructure:"providers"`
+	OAuth         OAuthConfigs     `mapstructure:"oauth"`
+	LogLevel      string           `mapstructure:"log_level"`
+	DataDir       string           `mapstructure:"data_dir"`
+	Webhooks      []WebhookConfig  `mapstructure:"webhooks"`
+	ResponseCache CacheConfig      `mapstructure:"response_cache"`
 }
 
 func Load(cfgPath string) (*Config, error) {
