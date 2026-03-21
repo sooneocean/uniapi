@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react';
-import { getUsers, addUser, deleteUser, getMe } from '../api/client';
+import { getUsers, addUser, deleteUser, getMe, updateUserQuotas } from '../api/client';
 
 interface User {
   id: string;
   username: string;
   role: string;
   created_at?: string;
+  daily_token_limit?: number;
+  daily_cost_limit?: number;
+  monthly_cost_limit?: number;
 }
 
 export default function UserSettings() {
@@ -19,6 +22,13 @@ export default function UserSettings() {
   const [formPassword, setFormPassword] = useState('');
   const [formRole, setFormRole] = useState('member');
   const [submitting, setSubmitting] = useState(false);
+
+  // Quota editing state
+  const [editingQuotaId, setEditingQuotaId] = useState<string | null>(null);
+  const [quotaDailyTokens, setQuotaDailyTokens] = useState('0');
+  const [quotaDailyCost, setQuotaDailyCost] = useState('0');
+  const [quotaMonthlyCost, setQuotaMonthlyCost] = useState('0');
+  const [quotaSubmitting, setQuotaSubmitting] = useState(false);
 
   const load = async () => {
     try {
@@ -63,9 +73,38 @@ export default function UserSettings() {
     }
   };
 
+  const startEditQuota = (u: User) => {
+    setEditingQuotaId(u.id);
+    setQuotaDailyTokens(String(u.daily_token_limit ?? 0));
+    setQuotaDailyCost(String(u.daily_cost_limit ?? 0));
+    setQuotaMonthlyCost(String(u.monthly_cost_limit ?? 0));
+  };
+
+  const handleSaveQuota = async (id: string) => {
+    setQuotaSubmitting(true);
+    try {
+      await updateUserQuotas(id, {
+        daily_token_limit: parseInt(quotaDailyTokens) || 0,
+        daily_cost_limit: parseFloat(quotaDailyCost) || 0,
+        monthly_cost_limit: parseFloat(quotaMonthlyCost) || 0,
+      });
+      setEditingQuotaId(null);
+      await load();
+    } catch {
+      setError('Failed to update quotas');
+    } finally {
+      setQuotaSubmitting(false);
+    }
+  };
+
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '—';
     return new Date(dateStr).toLocaleDateString();
+  };
+
+  const formatQuota = (val?: number, prefix = '') => {
+    if (!val || val === 0) return '∞';
+    return prefix + val.toLocaleString();
   };
 
   return (
@@ -134,22 +173,95 @@ export default function UserSettings() {
       ) : (
         <div className="space-y-2">
           {users.map((u) => (
-            <div key={u.id} className="bg-gray-700 rounded-lg p-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-white font-medium">{u.username}</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.role === 'admin' ? 'bg-purple-900 text-purple-300' : 'bg-gray-600 text-gray-300'}`}>
-                  {u.role}
-                </span>
-                <span className="text-gray-400 text-xs">Joined {formatDate(u.created_at)}</span>
+            <div key={u.id} className="bg-gray-700 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="text-white font-medium">{u.username}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${u.role === 'admin' ? 'bg-purple-900 text-purple-300' : 'bg-gray-600 text-gray-300'}`}>
+                    {u.role}
+                  </span>
+                  <span className="text-gray-400 text-xs">Joined {formatDate(u.created_at)}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => editingQuotaId === u.id ? setEditingQuotaId(null) : startEditQuota(u)}
+                    className="px-3 py-1.5 bg-gray-600 text-gray-200 rounded text-sm hover:bg-gray-500 transition-colors"
+                  >
+                    Quotas
+                  </button>
+                  <button
+                    onClick={() => handleDelete(u.id)}
+                    disabled={me?.id === u.id}
+                    title={me?.id === u.id ? "You can't delete yourself" : 'Delete user'}
+                    className="px-3 py-1.5 bg-red-800 text-red-200 rounded text-sm hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
-              <button
-                onClick={() => handleDelete(u.id)}
-                disabled={me?.id === u.id}
-                title={me?.id === u.id ? "You can't delete yourself" : 'Delete user'}
-                className="px-3 py-1.5 bg-red-800 text-red-200 rounded text-sm hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Delete
-              </button>
+
+              {/* Quota display */}
+              <div className="mt-2 flex gap-4 text-xs text-gray-400">
+                <span>Daily tokens: <span className="text-gray-300">{formatQuota(u.daily_token_limit)}</span></span>
+                <span>Daily cost: <span className="text-gray-300">{formatQuota(u.daily_cost_limit, '$')}</span></span>
+                <span>Monthly cost: <span className="text-gray-300">{formatQuota(u.monthly_cost_limit, '$')}</span></span>
+              </div>
+
+              {/* Quota editor */}
+              {editingQuotaId === u.id && (
+                <div className="mt-3 bg-gray-600 rounded p-3 space-y-2">
+                  <p className="text-xs text-gray-300 mb-2">Set limits (0 = unlimited)</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Daily Tokens</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={quotaDailyTokens}
+                        onChange={(e) => setQuotaDailyTokens(e.target.value)}
+                        className="w-full bg-gray-700 text-white rounded px-2 py-1 text-sm border border-gray-500 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Daily Cost ($)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={quotaDailyCost}
+                        onChange={(e) => setQuotaDailyCost(e.target.value)}
+                        className="w-full bg-gray-700 text-white rounded px-2 py-1 text-sm border border-gray-500 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Monthly Cost ($)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={quotaMonthlyCost}
+                        onChange={(e) => setQuotaMonthlyCost(e.target.value)}
+                        className="w-full bg-gray-700 text-white rounded px-2 py-1 text-sm border border-gray-500 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={() => handleSaveQuota(u.id)}
+                      disabled={quotaSubmitting}
+                      className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-500 disabled:opacity-50 transition-colors"
+                    >
+                      {quotaSubmitting ? 'Saving...' : 'Save'}
+                    </button>
+                    <button
+                      onClick={() => setEditingQuotaId(null)}
+                      className="px-3 py-1.5 bg-gray-500 text-white rounded text-sm hover:bg-gray-400 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

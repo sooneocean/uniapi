@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/sooneocean/uniapi/internal/cache"
+	"github.com/sooneocean/uniapi/internal/memory"
 	"github.com/sooneocean/uniapi/internal/metrics"
 	"github.com/sooneocean/uniapi/internal/plugin"
 	"github.com/sooneocean/uniapi/internal/provider"
@@ -30,6 +32,7 @@ type APIHandler struct {
 	db         *sql.DB
 	ragMgr     *rag.Manager
 	pluginMgr  *plugin.Manager
+	memMgr     *memory.Manager
 }
 
 func (h *APIHandler) SetRAGManager(m *rag.Manager) {
@@ -49,7 +52,7 @@ func NewAPIHandlerFull(r *router.Router, rec *usage.Recorder, webhookMgr *webhoo
 }
 
 func NewAPIHandlerWithCache(r *router.Router, rec *usage.Recorder, webhookMgr *webhook.Manager, respCache *ResponseCache, db *sql.DB, mc *cache.MemCache) *APIHandler {
-	return &APIHandler{router: r, recorder: rec, webhookMgr: webhookMgr, respCache: respCache, db: db, aliasCache: mc}
+	return &APIHandler{router: r, recorder: rec, webhookMgr: webhookMgr, respCache: respCache, db: db, aliasCache: mc, memMgr: memory.NewManager(8000)}
 }
 
 type chatToolFunction struct {
@@ -222,6 +225,22 @@ func (h *APIHandler) ChatCompletions(c *gin.Context) {
 				h.aliasCache.Set(aliasCacheKey, "", 5*time.Minute)
 			}
 		}
+	}
+
+	// Quota check
+	if userID != "" {
+		if err := h.checkQuota(userID); err != nil {
+			c.JSON(429, gin.H{"error": gin.H{"type": "quota_exceeded", "message": err.Error()}})
+			return
+		}
+	}
+
+	// Memory compaction
+	if h.memMgr != nil {
+		chatReq.Messages = h.memMgr.CompactMessages(c.Request.Context(), chatReq.Messages,
+			func(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+				return h.router.Route(ctx, req, userID)
+			})
 	}
 
 	// RAG: inject knowledge base context
@@ -519,4 +538,44 @@ func (h *APIHandler) ListModels(c *gin.Context) {
 		data[i] = gin.H{"id": m.ID, "object": "model", "created": time.Now().Unix(), "owned_by": m.Provider}
 	}
 	c.JSON(http.StatusOK, gin.H{"object": "list", "data": data})
+}
+
+func (h *APIHandler) checkQuota(userID string) error {
+	if h.db == nil {
+		return nil
+	}
+	var dailyTokenLimit int
+	var dailyCostLimit, monthlyCostLimit float64
+	err := h.db.QueryRow(
+		"SELECT COALESCE(daily_token_limit,0), COALESCE(daily_cost_limit,0), COALESCE(monthly_cost_limit,0) FROM users WHERE id = ?", userID,
+	).Scan(&dailyTokenLimit, &dailyCostLimit, &monthlyCostLimit)
+	if err != nil {
+		return nil // no user = no limit
+	}
+
+	today := time.Now().Format("2006-01-02")
+	monthStart := time.Now().Format("2006-01") + "-01"
+
+	if dailyTokenLimit > 0 {
+		var dailyTokens int
+		h.db.QueryRow("SELECT COALESCE(SUM(tokens_in + tokens_out), 0) FROM usage_daily WHERE user_id = ? AND date = ?", userID, today).Scan(&dailyTokens) //nolint:errcheck
+		if dailyTokens >= dailyTokenLimit {
+			return fmt.Errorf("daily token limit exceeded (%d/%d)", dailyTokens, dailyTokenLimit)
+		}
+	}
+	if dailyCostLimit > 0 {
+		var dailyCost float64
+		h.db.QueryRow("SELECT COALESCE(SUM(cost), 0) FROM usage_daily WHERE user_id = ? AND date = ?", userID, today).Scan(&dailyCost) //nolint:errcheck
+		if dailyCost >= dailyCostLimit {
+			return fmt.Errorf("daily cost limit exceeded ($%.2f/$%.2f)", dailyCost, dailyCostLimit)
+		}
+	}
+	if monthlyCostLimit > 0 {
+		var monthlyCost float64
+		h.db.QueryRow("SELECT COALESCE(SUM(cost), 0) FROM usage_daily WHERE user_id = ? AND date >= ?", userID, monthStart).Scan(&monthlyCost) //nolint:errcheck
+		if monthlyCost >= monthlyCostLimit {
+			return fmt.Errorf("monthly cost limit exceeded ($%.2f/$%.2f)", monthlyCost, monthlyCostLimit)
+		}
+	}
+	return nil
 }

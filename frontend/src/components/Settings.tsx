@@ -8,8 +8,10 @@ import AdminDashboard from './AdminDashboard';
 import ModelAliases from './ModelAliases';
 import KnowledgeBase from './KnowledgeBase';
 import PluginManager from './PluginManager';
+import PromptTemplates from './PromptTemplates';
+import DataSettings from './DataSettings';
 
-type Tab = 'dashboard' | 'providers' | 'users' | 'usage' | 'apikeys' | 'aliases' | 'knowledge' | 'plugins';
+type Tab = 'dashboard' | 'providers' | 'users' | 'usage' | 'apikeys' | 'aliases' | 'knowledge' | 'plugins' | 'templates' | 'data';
 
 interface SettingsProps {
   onClose: () => void;
@@ -29,6 +31,8 @@ export default function Settings({ onClose, userRole }: SettingsProps) {
     { id: 'aliases', label: 'Model Aliases' },
     { id: 'knowledge', label: 'Knowledge' },
     { id: 'plugins', label: 'Plugins' },
+    { id: 'templates', label: 'Templates' },
+    { id: 'data', label: 'Data' },
   ];
 
   const visibleTabs = tabs.filter((t) => !t.adminOnly || userRole === 'admin');
@@ -75,6 +79,8 @@ export default function Settings({ onClose, userRole }: SettingsProps) {
           {activeTab === 'aliases' && <ModelAliases />}
           {activeTab === 'knowledge' && <KnowledgeBase />}
           {activeTab === 'plugins' && <PluginManager />}
+          {activeTab === 'templates' && <PromptTemplates />}
+          {activeTab === 'data' && <DataSettings />}
         </div>
       </div>
     </div>

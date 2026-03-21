@@ -18,6 +18,7 @@ import StatusBar from './StatusBar';
 import SystemPromptSelector from './SystemPromptSelector';
 import VoiceInput from './VoiceInput';
 import FileAttachment, { type AttachedFile, formatAttachedFiles } from './FileAttachment';
+import PromptTemplates from './PromptTemplates';
 import { estimateTokens, estimateCost } from '../utils/tokenEstimator';
 
 interface Props {
@@ -41,6 +42,7 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [showShareDialog, setShowShareDialog] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const streamStartRef = useRef<number>(0);
   const tokenCountRef = useRef<number>(0);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -575,6 +577,25 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
             })}
           </div>
         )}
+        {/* Template picker dropdown */}
+        {showTemplatePicker && (
+          <div className="relative mb-2">
+            <div className="absolute bottom-full left-0 z-50 bg-gray-800 border border-gray-600 rounded-xl shadow-2xl w-80 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-gray-300">Templates</span>
+                <button onClick={() => setShowTemplatePicker(false)} className="text-gray-500 hover:text-gray-300 text-sm">✕</button>
+              </div>
+              <PromptTemplates
+                compact
+                onApply={(sysPrompt, userPrompt) => {
+                  if (sysPrompt) setSystemPrompt(sysPrompt);
+                  if (userPrompt) setInput(userPrompt);
+                  setShowTemplatePicker(false);
+                }}
+              />
+            </div>
+          </div>
+        )}
         <div className="flex items-end gap-2">
           {/* Hidden image file input */}
           <input
@@ -585,6 +606,16 @@ export default function ChatArea({ conversationId, onConversationTitleUpdate, on
             className="hidden"
             onChange={handleFileInputChange}
           />
+          {/* Template picker button */}
+          <button
+            type="button"
+            onClick={() => setShowTemplatePicker((v) => !v)}
+            disabled={loading}
+            className="px-3 py-3 bg-gray-700 text-gray-300 rounded-xl text-sm hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+            title="Prompt templates"
+          >
+            📝
+          </button>
           {/* Image attach button */}
           <button
             type="button"

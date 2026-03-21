@@ -348,3 +348,31 @@ export async function getPlugins() { return (await api.get('/api/plugins')).data
 export async function registerPlugin(data: any) { return (await api.post('/api/plugins', data)).data; }
 export async function deletePlugin(id: string) { await api.delete(`/api/plugins/${id}`); }
 export async function testPlugin(id: string, input: any) { return (await api.post(`/api/plugins/${id}/test`, input)).data; }
+
+// User Quotas
+export async function updateUserQuotas(id: string, data: { daily_token_limit: number; daily_cost_limit: number; monthly_cost_limit: number }) {
+  return (await api.put(`/api/users/${id}/quotas`, data)).data;
+}
+
+// Prompt Templates
+export async function getTemplates() { return (await api.get('/api/templates')).data; }
+export async function createTemplate(data: any) { return (await api.post('/api/templates', data)).data; }
+export async function updateTemplate(id: string, data: any) { return (await api.put(`/api/templates/${id}`, data)).data; }
+export async function deleteTemplate(id: string) { await api.delete(`/api/templates/${id}`); }
+export async function useTemplate(id: string) { return (await api.post(`/api/templates/${id}/use`)).data; }
+
+// Data Export / Import
+export async function exportAllData() {
+  const resp = await api.get('/api/export', { responseType: 'blob' });
+  const url = URL.createObjectURL(resp.data);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `uniapi-export-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function importData(file: File) {
+  const content = await file.text();
+  return (await api.post('/api/import', JSON.parse(content))).data;
+}

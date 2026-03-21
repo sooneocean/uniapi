@@ -319,6 +319,7 @@ func main() {
 	apiAuth.GET("/users", settingsHandler.ListUsers)
 	apiAuth.POST("/users", settingsHandler.CreateUser)
 	apiAuth.DELETE("/users/:id", settingsHandler.DeleteUser)
+	apiAuth.PUT("/users/:id/quotas", settingsHandler.UpdateUserQuotas)
 
 	// API key management
 	apiAuth.GET("/api-keys", settingsHandler.ListAPIKeys)
@@ -387,6 +388,18 @@ func main() {
 	apiAuth.POST("/plugins", pluginHandler.Register)
 	apiAuth.DELETE("/plugins/:id", pluginHandler.Delete)
 	apiAuth.POST("/plugins/:id/test", pluginHandler.Test)
+
+	// Prompt templates
+	templatesHandler := handler.NewTemplatesHandler(database)
+	apiAuth.GET("/templates", templatesHandler.List)
+	apiAuth.POST("/templates", templatesHandler.Create)
+	apiAuth.PUT("/templates/:id", templatesHandler.Update)
+	apiAuth.DELETE("/templates/:id", templatesHandler.Delete)
+	apiAuth.POST("/templates/:id/use", templatesHandler.Use)
+
+	// Data export / import
+	apiAuth.GET("/export", settingsHandler.ExportUserData)
+	apiAuth.POST("/import", settingsHandler.ImportUserData)
 
 	// Chat rooms routes
 	roomsHandler := handler.NewRoomsHandler(database.DB, rtr)

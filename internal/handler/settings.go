@@ -256,6 +256,28 @@ func (h *SettingsHandler) CreateUser(c *gin.Context) {
 	})
 }
 
+// PUT /api/users/:id/quotas
+func (h *SettingsHandler) UpdateUserQuotas(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+	id := c.Param("id")
+	var req struct {
+		DailyTokenLimit  int     `json:"daily_token_limit"`
+		DailyCostLimit   float64 `json:"daily_cost_limit"`
+		MonthlyCostLimit float64 `json:"monthly_cost_limit"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.userRepo.UpdateQuotas(id, req.DailyTokenLimit, req.DailyCostLimit, req.MonthlyCostLimit); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 func (h *SettingsHandler) DeleteUser(c *gin.Context) {
 	if !requireAdmin(c) {
 		return
@@ -1175,6 +1197,78 @@ func (h *SettingsHandler) Dashboard(c *gin.Context) {
 		"top_models":    topModels,
 		"recent_audit":  recentAudit,
 	})
+}
+
+// ─── Data export / import ─────────────────────────────────────────────────────
+
+// GET /api/export
+func (h *SettingsHandler) ExportUserData(c *gin.Context) {
+	uid, _ := c.Get("user_id")
+	userID := uid.(string)
+
+	conversations, _ := h.convoRepo.ListByUser(userID)
+	var convosWithMessages []gin.H
+	for _, conv := range conversations {
+		messages, _ := h.convoRepo.GetMessages(conv.ID)
+		convosWithMessages = append(convosWithMessages, gin.H{
+			"conversation": conv, "messages": messages,
+		})
+	}
+
+	systemPrompts, _ := h.systemPromptRepo.ListByUser(userID)
+
+	data := gin.H{
+		"version":        "1.0",
+		"exported_at":    time.Now().UTC().Format(time.RFC3339),
+		"conversations":  convosWithMessages,
+		"system_prompts": systemPrompts,
+	}
+
+	c.Header("Content-Disposition", "attachment; filename=uniapi-export.json")
+	c.JSON(200, data)
+}
+
+// POST /api/import
+func (h *SettingsHandler) ImportUserData(c *gin.Context) {
+	uid, _ := c.Get("user_id")
+	userID := uid.(string)
+
+	var data struct {
+		Conversations []struct {
+			Conversation struct {
+				Title string `json:"title"`
+			} `json:"conversation"`
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+				Model   string `json:"model"`
+			} `json:"messages"`
+		} `json:"conversations"`
+	}
+	if err := c.ShouldBindJSON(&data); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	imported := 0
+	for _, conv := range data.Conversations {
+		newConv, err := h.convoRepo.Create(userID, conv.Conversation.Title)
+		if err != nil {
+			continue
+		}
+		for _, msg := range conv.Messages {
+			h.convoRepo.AddMessage(&repo.MessageRecord{ //nolint:errcheck
+				ID:             uuid.New().String(),
+				ConversationID: newConv.ID,
+				Role:           msg.Role,
+				Content:        msg.Content,
+				Model:          msg.Model,
+			})
+		}
+		imported++
+	}
+
+	c.JSON(200, gin.H{"ok": true, "imported_conversations": imported})
 }
 
 // ─── Database backup ──────────────────────────────────────────────────────────

@@ -103,3 +103,10 @@ func (r *UserRepo) Delete(id string) error {
 	}
 	return nil
 }
+
+func (r *UserRepo) UpdateQuotas(id string, dailyTokens int, dailyCost, monthlyCost float64) error {
+	_, err := r.db.DB.Exec(
+		"UPDATE users SET daily_token_limit = ?, daily_cost_limit = ?, monthly_cost_limit = ? WHERE id = ?",
+		dailyTokens, dailyCost, monthlyCost, id)
+	return err
+}
